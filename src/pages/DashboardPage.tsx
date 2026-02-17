@@ -1,46 +1,17 @@
 import { useState, useEffect } from 'react'
 import {
-    Users, Hash, Trophy, Activity, TrendingUp, RefreshCw, Quote, Image
+    Users, FolderKanban, IndianRupee, Clock, TrendingUp, RefreshCw, Activity,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, Legend
+    ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
-import api from '../lib/api'
-
-
-
-interface NaamJapAnalytics {
-    naamJap: {
-        totalUsers: number
-        totalMalas: number
-        totalCount: number
-        todayActiveUsers: number
-        newUsersThisWeek: number
-    }
-    dailyQuotes: {
-        total: number
-        active: number
-    }
-    topUsers: {
-        rank: number
-        name: string
-        city: string
-        malas: number
-        count: number
-    }[]
-    dailyActivity: {
-        name: string
-        malas: number
-        users: number
-        count: number
-    }[]
-}
+import { getDashboardAnalytics, DashboardAnalytics } from '../lib/api'
 
 interface StatCardProps {
     title: string
-    value: number | string
+    value: string | number
     icon: React.ElementType
     color: string
     isLoading: boolean
@@ -88,20 +59,21 @@ function ChartSkeleton({ height = 300 }: { height?: number }) {
     )
 }
 
-const CHART_COLORS = {
-    malas: '#8b5cf6',
-    users: '#3b82f6',
-    count: '#22c55e',
+const STATUS_COLORS: Record<string, string> = {
+    draft: '#6b7280',
+    active: '#22c55e',
+    on_hold: '#f59e0b',
+    completed: '#3b82f6',
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
         return (
             <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
                 <p className="text-sm text-muted-foreground mb-1">{label}</p>
-                {payload.map((entry: any, index: number) => (
-                    <p key={index} className="text-sm font-medium" style={{ color: entry.color }}>
-                        {entry.name}: {entry.value.toLocaleString('en-IN')}
+                {payload.map((entry: any, i: number) => (
+                    <p key={i} className="text-sm font-medium" style={{ color: entry.color }}>
+                        {entry.name}: ₹{entry.value.toLocaleString('en-IN')}
                     </p>
                 ))}
             </div>
@@ -111,22 +83,18 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 export function DashboardPage() {
-    const [analytics, setAnalytics] = useState<NaamJapAnalytics | null>(null)
+    const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState('')
 
-    useEffect(() => {
-        fetchAnalytics()
-    }, [])
+    useEffect(() => { fetchAnalytics() }, [])
 
     const fetchAnalytics = async () => {
         setIsLoading(true)
         setError('')
         try {
-            const response = await api.get('/admin/analytics')
-            if (response.data.success) {
-                setAnalytics(response.data.response)
-            }
+            const response = await getDashboardAnalytics()
+            if (response.success) setAnalytics(response.response)
         } catch (err: any) {
             setError(err.response?.data?.message || 'Failed to fetch analytics')
         } finally {
@@ -134,148 +102,140 @@ export function DashboardPage() {
         }
     }
 
-    const formatNumber = (n: number) => n.toLocaleString('en-IN')
+    const formatCurrency = (n: number) => `₹${n.toLocaleString('en-IN')}`
 
-    const naamJapStats = [
-        { title: 'Total Users', value: analytics?.naamJap?.totalUsers || 0, icon: Users, color: 'bg-primary/10 text-primary' },
-        { title: 'Total Malas', value: analytics?.naamJap?.totalMalas || 0, icon: Hash, color: 'bg-emerald-500/10 text-emerald-500' },
-        { title: 'Total Count', value: analytics?.naamJap?.totalCount || 0, icon: Trophy, color: 'bg-blue-500/10 text-blue-500' },
-        { title: 'Active Today', value: analytics?.naamJap?.todayActiveUsers || 0, icon: Activity, color: 'bg-green-500/10 text-green-500' },
-        { title: 'New This Week', value: analytics?.naamJap?.newUsersThisWeek || 0, icon: TrendingUp, color: 'bg-purple-500/10 text-purple-500' },
+    const stats = [
+        { title: 'Total Revenue', value: analytics ? formatCurrency(analytics.stats.totalRevenue) : '₹0', icon: IndianRupee, color: 'bg-primary/10 text-primary' },
+        { title: 'Pending Payments', value: analytics ? formatCurrency(analytics.stats.pendingPayments) : '₹0', icon: Clock, color: 'bg-warning/10 text-warning' },
+        { title: 'Active Projects', value: analytics?.stats.activeProjects || 0, icon: FolderKanban, color: 'bg-success/10 text-success' },
+        { title: 'Total Users', value: analytics?.stats.totalUsers || 0, icon: Users, color: 'bg-accent/10 text-accent' },
     ]
 
-    const quotesStats = [
-        { title: 'Total Quotes', value: analytics?.dailyQuotes?.total || 0, icon: Image, color: 'bg-amber-500/10 text-amber-500' },
-        { title: 'Active Quotes', value: analytics?.dailyQuotes?.active || 0, icon: Quote, color: 'bg-orange-500/10 text-orange-500' },
-    ]
+    const pieData = analytics?.projectsByStatus
+        ? Object.entries(analytics.projectsByStatus).map(([name, value]) => ({ name, value }))
+        : []
+
+    const revenueData = analytics?.monthlyRevenue?.map(m => ({
+        name: new Date(m._id + '-01').toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+        revenue: m.revenue,
+    })) || []
 
     return (
         <div className="animate-fade-in space-y-4 sm:space-y-6">
-            {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground">Dashboard</h1>
-                    <p className="text-muted-foreground text-sm mt-0.5">
-                        Welcome to Shree Jii Admin Panel
-                    </p>
+                    <p className="text-muted-foreground text-sm mt-0.5">AgencyFlow CRM Overview</p>
                 </div>
-                <button
-                    onClick={fetchAnalytics}
-                    disabled={isLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                >
-                    <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
-                    Refresh
+                <button onClick={fetchAnalytics} disabled={isLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+                    <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} /> Refresh
                 </button>
             </div>
 
             {error && (
-                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-                    {error}
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">{error}</div>
+            )}
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {stats.map((stat) => <StatCard key={stat.title} {...stat} isLoading={isLoading} />)}
+            </div>
+
+            {/* Role breakdown */}
+            {analytics?.usersByRole && (
+                <div>
+                    <h2 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Team Overview</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {(['admin', 'manager', 'developer', 'client'] as const).map(role => (
+                            <div key={role} className="bg-card border border-border rounded-lg p-3">
+                                <p className="text-xs text-muted-foreground capitalize">{role}s</p>
+                                <p className="text-lg font-bold text-foreground">{analytics.usersByRole[role] || 0}</p>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
-            {/* Naam Jap Stats */}
-            <div>
-                <h2 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2 sm:mb-3">Naam Jap Overview</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-                    {naamJapStats.map((stat) => (
-                        <StatCard key={stat.title} {...stat} isLoading={isLoading} />
-                    ))}
-                </div>
-            </div>
-
-            {/* Daily Quotes Stats */}
-            <div>
-                <h2 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2 sm:mb-3">Daily Quotes</h2>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 max-w-md">
-                    {quotesStats.map((stat) => (
-                        <StatCard key={stat.title} {...stat} isLoading={isLoading} />
-                    ))}
-                </div>
-            </div>
-
-            {/* Charts & Top Users */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-                {/* Daily Activity Chart */}
-                {isLoading ? (
-                    <ChartSkeleton />
-                ) : (
-                    <div className="bg-card border border-border rounded-xl p-3 sm:p-5">
-                        <h3 className="text-sm sm:text-base font-semibold text-foreground mb-3 sm:mb-4">Daily Activity (Last 7 Days)</h3>
-                        {analytics?.dailyActivity && analytics.dailyActivity.length > 0 ? (
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {isLoading ? <ChartSkeleton /> : (
+                    <div className="bg-card border border-border rounded-xl p-5">
+                        <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4">Monthly Revenue</h3>
+                        {revenueData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={280}>
-                                <BarChart data={analytics.dailyActivity}>
+                                <BarChart data={revenueData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                                    <XAxis
-                                        dataKey="name"
-                                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                                        tickLine={false}
-                                        axisLine={false}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                                        tickLine={false}
-                                        axisLine={false}
-                                    />
+                                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                                    <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                                     <Tooltip content={<CustomTooltip />} />
-                                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }} />
-                                    <Bar dataKey="malas" name="Malas" fill={CHART_COLORS.malas} radius={[4, 4, 0, 0]} />
-                                    <Bar dataKey="users" name="Active Users" fill={CHART_COLORS.users} radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
                             <div className="h-[280px] flex items-center justify-center text-muted-foreground">
-                                No activity data yet
+                                <div className="text-center">
+                                    <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                                    <p>No revenue data yet</p>
+                                </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Top Users */}
-                {isLoading ? (
-                    <ChartSkeleton />
-                ) : (
-                    <div className="bg-card border border-border rounded-xl p-3 sm:p-5">
-                        <h3 className="text-sm sm:text-base font-semibold text-foreground mb-3 sm:mb-4">Top 10 Users</h3>
-                        {analytics?.topUsers && analytics.topUsers.length > 0 ? (
-                            <div className="overflow-auto max-h-[280px]">
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b border-border">
-                                            <th className="text-left py-2 px-2 text-xs font-semibold text-muted-foreground">#</th>
-                                            <th className="text-left py-2 px-2 text-xs font-semibold text-muted-foreground">Name</th>
-                                            <th className="text-left py-2 px-2 text-xs font-semibold text-muted-foreground">City</th>
-                                            <th className="text-right py-2 px-2 text-xs font-semibold text-muted-foreground">Malas</th>
-                                            <th className="text-right py-2 px-2 text-xs font-semibold text-muted-foreground">Count</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border">
-                                        {analytics.topUsers.map((user) => (
-                                            <tr key={`${user.rank}-${user.name}`} className="hover:bg-muted/30 transition-colors">
-                                                <td className="py-2 px-2 text-sm text-muted-foreground">{user.rank}</td>
-                                                <td className="py-2 px-2 text-sm font-medium text-foreground">{user.name}</td>
-                                                <td className="py-2 px-2 text-sm text-muted-foreground">{user.city}</td>
-                                                <td className="py-2 px-2 text-sm font-semibold text-foreground text-right">
-                                                    {formatNumber(user.malas)}
-                                                </td>
-                                                <td className="py-2 px-2 text-sm text-muted-foreground text-right">
-                                                    {formatNumber(user.count)}
-                                                </td>
-                                            </tr>
+                {isLoading ? <ChartSkeleton /> : (
+                    <div className="bg-card border border-border rounded-xl p-5">
+                        <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4">Projects by Status</h3>
+                        {pieData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <PieChart>
+                                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100}
+                                        paddingAngle={4} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                                        {pieData.map((entry) => (
+                                            <Cell key={entry.name} fill={STATUS_COLORS[entry.name] || '#8b5cf6'} />
                                         ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                    </Pie>
+                                    <Tooltip />
+                                </PieChart>
+                            </ResponsiveContainer>
                         ) : (
                             <div className="h-[280px] flex items-center justify-center text-muted-foreground">
                                 <div className="text-center">
-                                    <Users className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                                    <p>No users yet</p>
+                                    <FolderKanban className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                                    <p>No projects yet</p>
                                 </div>
                             </div>
                         )}
                     </div>
+                )}
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-card border border-border rounded-xl p-5">
+                <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4 flex items-center gap-2">
+                    <Activity className="w-4 h-4" /> Recent Activity
+                </h3>
+                {analytics?.recentActivity && analytics.recentActivity.length > 0 ? (
+                    <div className="space-y-3">
+                        {analytics.recentActivity.map((activity: any, i: number) => (
+                            <div key={i} className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+                                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                                    <span className="text-xs font-medium">{activity.userId?.name?.charAt(0) || '?'}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-foreground">
+                                        <span className="font-medium">{activity.userId?.name || 'System'}</span>
+                                        {' — '}{activity.action?.replace(/\./g, ' ')}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {new Date(activity.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No recent activity</p>
                 )}
             </div>
         </div>

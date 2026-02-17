@@ -4,29 +4,25 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
 const api = axios.create({
     baseURL: API_URL,
-    headers: {
-        'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
 })
 
-// Add auth token to requests
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('admin_token')
+    const token = localStorage.getItem('auth_token')
     if (token) {
         config.headers.Authorization = `Bearer ${token}`
     }
     return config
 })
 
-// Handle auth errors
 api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            const token = localStorage.getItem('admin_token')
-            const isProfileCheck = error.config?.url?.includes('/admin/me')
-
-            if (!token && !isProfileCheck) {
+            const isProfileCheck = error.config?.url?.includes('/auth/me')
+            if (!isProfileCheck) {
+                localStorage.removeItem('auth_token')
+                localStorage.removeItem('auth_user')
                 window.location.href = '/login'
             }
         }
@@ -34,206 +30,225 @@ api.interceptors.response.use(
     }
 )
 
-export interface Admin {
+// Types
+export interface User {
     _id: string
     name: string
     email: string
+    phone: string
     avatar: string
-    role: string
+    role: 'admin' | 'manager' | 'developer' | 'client'
+    company: string
+    designation: string
+    isActive: boolean
+    lastLogin: string
+    createdAt: string
+    updatedAt: string
+}
+
+export interface Project {
+    _id: string
+    name: string
+    description: string
+    clientId: User | string
+    managerId: User | string | null
+    developerIds: (User | string)[]
+    budget: {
+        amount: number
+        currency: string
+        paid: number
+        pending: number
+    }
+    deadline: string | null
+    priority: 'low' | 'medium' | 'high' | 'critical'
+    status: 'draft' | 'active' | 'on_hold' | 'completed'
+    tags: string[]
+    createdBy: User | string
+    createdAt: string
+    updatedAt: string
+}
+
+export interface Milestone {
+    _id: string
+    projectId: string | Project
+    title: string
+    description: string
+    amount: number
+    dueDate: string | null
+    status: 'pending' | 'in_progress' | 'submitted' | 'client_approved' | 'payment_pending' | 'paid'
+    createdBy: User | string
+    approvedBy: User | string | null
+    approvedAt: string | null
+    paidAt: string | null
+    paidBy: string | null
+    createdAt: string
 }
 
 export interface DashboardAnalytics {
-    naamJap: {
+    stats: {
         totalUsers: number
-        totalMalas: number
-        totalCount: number
-        todayActiveUsers: number
-        newUsersThisWeek: number
+        totalProjects: number
+        activeProjects: number
+        totalRevenue: number
+        pendingPayments: number
     }
-    dailyQuotes: {
-        total: number
-        active: number
-    }
-    topUsers: {
-        rank: number
-        name: string
-        city: string
-        malas: number
-        count: number
-    }[]
-    dailyActivity: {
-        name: string
-        malas: number
-        users: number
-        count: number
-    }[]
+    usersByRole: Record<string, number>
+    projectsByStatus: Record<string, number>
+    recentActivity: any[]
+    recentProjects: Project[]
+    monthlyRevenue: { _id: string; revenue: number; count: number }[]
 }
 
 // Auth APIs
-export const adminLogin = async (email: string, password: string) => {
-    const response = await api.post('/admin/login', { email, password })
+export const authLogin = async (email: string, password: string) => {
+    const response = await api.post('/auth/login', { email, password })
     return response.data
 }
 
-export const getAdminProfile = async () => {
-    const response = await api.get('/admin/me')
+export const getProfile = async () => {
+    const response = await api.get('/auth/me')
     return response.data
 }
 
 export const setupAdmin = async () => {
-    const response = await api.post('/admin/setup')
+    const response = await api.post('/auth/setup')
+    return response.data
+}
+
+export const updateProfile = async (data: Partial<User>) => {
+    const response = await api.put('/auth/profile', data)
+    return response.data
+}
+
+export const updatePassword = async (currentPassword: string, newPassword: string) => {
+    const response = await api.put('/auth/password', { currentPassword, newPassword })
     return response.data
 }
 
 // Dashboard APIs
 export const getDashboardAnalytics = async () => {
-    const response = await api.get('/admin/analytics')
+    const response = await api.get('/dashboard/analytics')
     return response.data as { success: boolean; response: DashboardAnalytics }
 }
 
-// Admin Settings APIs
-export interface AdminActivity {
-    admin: Admin
-    activity: {
-        lastLogin: string
-        accountCreated: string
-        stats: {
-            totalOrders: number
-            totalUsers: number
-            totalCoupons: number
-            totalCategories: number
-            totalBanners: number
-            totalDeliveryPartners: number
-        }
+// User APIs
+export const getUsers = async (params?: { role?: string; search?: string; page?: number; limit?: number }) => {
+    const response = await api.get('/users', { params })
+    return response.data as {
+        success: boolean
+        response: { users: User[]; pagination: { page: number; limit: number; total: number; pages: number } }
     }
 }
 
-export const updateAdminProfile = async (data: { name?: string; email?: string; avatar?: string }) => {
-    const response = await api.put('/admin/profile', data)
+export const createUser = async (data: { name: string; email: string; password: string; role: string; phone?: string; company?: string; designation?: string }) => {
+    const response = await api.post('/users', data)
     return response.data
 }
 
-export const updateAdminPassword = async (currentPassword: string, newPassword: string) => {
-    const response = await api.put('/admin/password', { currentPassword, newPassword })
+export const updateUser = async (id: string, data: Partial<User>) => {
+    const response = await api.put(`/users/${id}`, data)
     return response.data
 }
 
-export const getAdminActivity = async () => {
-    const response = await api.get('/admin/activity')
+export const deleteUser = async (id: string) => {
+    const response = await api.delete(`/users/${id}`)
     return response.data
 }
 
-// Daily Quotes APIs (image-only)
-export interface DailyQuoteData {
+// Project APIs
+export const getProjects = async (params?: { status?: string; priority?: string; search?: string; page?: number; limit?: number }) => {
+    const response = await api.get('/projects', { params })
+    return response.data as {
+        success: boolean
+        response: { projects: Project[]; pagination: { page: number; limit: number; total: number; pages: number } }
+    }
+}
+
+export const createProject = async (data: any) => {
+    const response = await api.post('/projects', data)
+    return response.data
+}
+
+export const getProject = async (id: string) => {
+    const response = await api.get(`/projects/${id}`)
+    return response.data
+}
+
+export const updateProject = async (id: string, data: any) => {
+    const response = await api.put(`/projects/${id}`, data)
+    return response.data
+}
+
+export const updateProjectStatus = async (id: string, status: string) => {
+    const response = await api.patch(`/projects/${id}/status`, { status })
+    return response.data
+}
+
+// Milestone APIs
+export const getMilestones = async (projectId: string) => {
+    const response = await api.get(`/milestones/project/${projectId}`)
+    return response.data as { success: boolean; response: Milestone[] }
+}
+
+export const createMilestone = async (data: { projectId: string; title: string; description?: string; amount: number; dueDate?: string }) => {
+    const response = await api.post('/milestones', data)
+    return response.data
+}
+
+export const updateMilestoneStatus = async (id: string, status: string) => {
+    const response = await api.patch(`/milestones/${id}/status`, { status })
+    return response.data
+}
+
+// Task Types
+export interface Task {
     _id: string
-    imageUrl: string
-    date: string
-    isActive: boolean
+    projectId: string | Project
+    title: string
+    description: string
+    assignedTo: User | string | null
+    assignedBy: User | string | null
+    deadline: string | null
+    priority: 'low' | 'medium' | 'high' | 'critical'
+    status: 'todo' | 'in_progress' | 'review' | 'done'
+    attachments: { name: string; url: string; type: string }[]
+    comments: { userId: User | string; text: string; createdAt: string }[]
     createdAt: string
     updatedAt: string
 }
 
-// Home Content APIs
-export interface HomeContentData {
-    _id?: string
-    title_hi: string
-    title_en: string
-    subtitle_hi: string
-    subtitle_en: string
-    paragraphs_hi: string[]
-    paragraphs_en: string[]
-    updatedAt?: string
-}
-
-export const getHomeContent = async () => {
-    const response = await api.get('/home-content')
-    return response.data as { success: boolean; response: HomeContentData | null }
-}
-
-export const saveHomeContent = async (data: Omit<HomeContentData, '_id' | 'updatedAt'>) => {
-    const response = await api.post('/home-content', data)
-    return response.data
-}
-
-export const getDailyQuotes = async (page: number = 1) => {
-    const response = await api.get('/daily-quotes', { params: { page, limit: 20 } })
+// Task APIs
+export const getTasks = async (params?: { projectId?: string; status?: string; priority?: string; assignedTo?: string; search?: string; page?: number; limit?: number }) => {
+    const response = await api.get('/tasks', { params })
     return response.data as {
         success: boolean
-        response: {
-            quotes: DailyQuoteData[]
-            pagination: { page: number; limit: number; total: number; pages: number }
-        }
+        response: { tasks: Task[]; pagination: { page: number; limit: number; total: number; pages: number } }
     }
 }
 
-export const uploadDailyQuoteImage = async (file: File) => {
-    const formData = new FormData()
-    formData.append('image', file)
-    const response = await api.post('/daily-quotes/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    return response.data as { success: boolean; response: { imageUrl: string; publicId: string } }
-}
-
-export const createDailyQuote = async (data: { imageUrl: string; date: string }) => {
-    const response = await api.post('/daily-quotes', data)
+export const createTask = async (data: { projectId: string; title: string; description?: string; assignedTo?: string; priority?: string; deadline?: string }) => {
+    const response = await api.post('/tasks', data)
     return response.data
 }
 
-export const updateDailyQuote = async (id: string, data: Partial<DailyQuoteData>) => {
-    const response = await api.put(`/daily-quotes/${id}`, data)
+export const getTask = async (id: string) => {
+    const response = await api.get(`/tasks/${id}`)
     return response.data
 }
 
-export const deleteDailyQuote = async (id: string) => {
-    const response = await api.delete(`/daily-quotes/${id}`)
+export const updateTask = async (id: string, data: any) => {
+    const response = await api.put(`/tasks/${id}`, data)
     return response.data
 }
 
-export const getTodayQuote = async () => {
-    const response = await api.get('/daily-quotes/today')
-    return response.data as { success: boolean; response: DailyQuoteData | null }
+export const updateTaskStatus = async (id: string, status: string) => {
+    const response = await api.patch(`/tasks/${id}/status`, { status })
+    return response.data
 }
 
-// Naam Jap Admin APIs
-export interface NaamJapUserData {
-    _id: string
-    name: string
-    city: string
-    totalCount: number
-    totalMalas: number
-    lastSyncAt: string
-    createdAt: string
-}
-
-export interface NaamJapAdminStats {
-    totalUsers: number
-    totalMalas: number
-    totalCount: number
-    todayActiveUsers: number
-    newUsersThisWeek: number
-}
-
-export const getNaamJapUsers = async (page: number = 1, search: string = '', sortBy: string = 'totalMalas', sortOrder: string = 'desc') => {
-    const response = await api.get('/naam-jap/admin/users', { params: { page, limit: 50, search, sortBy, sortOrder } })
-    return response.data as {
-        success: boolean
-        response: {
-            users: NaamJapUserData[]
-            pagination: { page: number; limit: number; total: number; pages: number }
-        }
-    }
-}
-
-export const getNaamJapAdminStats = async () => {
-    const response = await api.get('/naam-jap/admin/stats')
-    return response.data as { success: boolean; response: NaamJapAdminStats }
-}
-
-// Push Notification APIs
-export const sendPushNotification = async (title: string, body: string) => {
-    const response = await api.post('/notifications/send', { title, body })
-    return response.data as { success: boolean; message?: string; response: { sent: number; failed: number; total: number } }
+export const deleteTask = async (id: string) => {
+    const response = await api.delete(`/tasks/${id}`)
+    return response.data
 }
 
 export default api

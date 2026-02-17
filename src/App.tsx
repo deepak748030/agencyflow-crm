@@ -4,6 +4,12 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardLayout } from './components/DashboardLayout'
 import { DashboardPage } from './pages/DashboardPage'
+import { ProjectsPage } from './pages/ProjectsPage'
+import { ProjectDetailPage } from './pages/ProjectDetailPage'
+import { UsersPage } from './pages/UsersPage'
+import { TasksPage } from './pages/TasksPage'
+import { MilestonesPage } from './pages/MilestonesPage'
+import { SettingsPage } from './pages/SettingsPage'
 
 function App() {
     return (
@@ -20,6 +26,12 @@ function App() {
                         }
                     >
                         <Route index element={<DashboardPage />} />
+                        <Route path="projects" element={<ProjectsPage />} />
+                        <Route path="projects/:id" element={<ProjectDetailPage />} />
+                        <Route path="users" element={<UsersPage />} />
+                        <Route path="tasks" element={<TasksPage />} />
+                        <Route path="milestones" element={<MilestonesPage />} />
+                        <Route path="settings" element={<SettingsPage />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

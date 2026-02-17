@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
-import { Admin, adminLogin, getAdminProfile } from '../lib/api'
+import { User, authLogin, getProfile } from '../lib/api'
 
 interface AuthContextType {
-    admin: Admin | null
+    user: User | null
     isLoading: boolean
     isAuthenticated: boolean
     login: (email: string, password: string) => Promise<void>
@@ -12,74 +12,50 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [admin, setAdmin] = useState<Admin | null>(() => {
-        // Initialize from localStorage to prevent flash
-        const savedAdmin = localStorage.getItem('admin_user')
-        return savedAdmin ? JSON.parse(savedAdmin) : null
+    const [user, setUser] = useState<User | null>(() => {
+        const saved = localStorage.getItem('auth_user')
+        return saved ? JSON.parse(saved) : null
     })
     const [isLoading, setIsLoading] = useState(true)
     const authChecked = useRef(false)
 
     const checkAuth = useCallback(async () => {
-        // Prevent multiple auth checks
-        if (authChecked.current) {
-            setIsLoading(false)
-            return
-        }
+        if (authChecked.current) { setIsLoading(false); return }
         authChecked.current = true
 
         try {
-            const token = localStorage.getItem('admin_token')
+            const token = localStorage.getItem('auth_token')
             if (token) {
-                // Try to get fresh profile data
-                const response = await getAdminProfile()
+                const response = await getProfile()
                 if (response.success) {
-                    setAdmin(response.response)
-                    localStorage.setItem('admin_user', JSON.stringify(response.response))
+                    setUser(response.response)
+                    localStorage.setItem('auth_user', JSON.stringify(response.response))
                 } else {
-                    // Profile fetch failed, but we have cached data - use it
-                    const savedAdmin = localStorage.getItem('admin_user')
-                    if (savedAdmin) {
-                        setAdmin(JSON.parse(savedAdmin))
-                    } else {
-                        // No cached data, clear auth
-                        localStorage.removeItem('admin_token')
-                        localStorage.removeItem('admin_user')
-                        setAdmin(null)
-                    }
+                    const saved = localStorage.getItem('auth_user')
+                    if (saved) setUser(JSON.parse(saved))
+                    else { localStorage.removeItem('auth_token'); localStorage.removeItem('auth_user'); setUser(null) }
                 }
             } else {
-                setAdmin(null)
+                setUser(null)
             }
-        } catch (error) {
-            // On error, try to use cached admin data
-            const savedAdmin = localStorage.getItem('admin_user')
-            const token = localStorage.getItem('admin_token')
-
-            if (savedAdmin && token) {
-                // Use cached data if available
-                setAdmin(JSON.parse(savedAdmin))
-            } else {
-                // No cached data, clear auth
-                localStorage.removeItem('admin_token')
-                localStorage.removeItem('admin_user')
-                setAdmin(null)
-            }
+        } catch {
+            const saved = localStorage.getItem('auth_user')
+            const token = localStorage.getItem('auth_token')
+            if (saved && token) setUser(JSON.parse(saved))
+            else { localStorage.removeItem('auth_token'); localStorage.removeItem('auth_user'); setUser(null) }
         } finally {
             setIsLoading(false)
         }
     }, [])
 
-    useEffect(() => {
-        checkAuth()
-    }, [checkAuth])
+    useEffect(() => { checkAuth() }, [checkAuth])
 
     const login = async (email: string, password: string) => {
-        const response = await adminLogin(email, password)
+        const response = await authLogin(email, password)
         if (response.success) {
-            localStorage.setItem('admin_token', response.response.token)
-            localStorage.setItem('admin_user', JSON.stringify(response.response.admin))
-            setAdmin(response.response.admin)
+            localStorage.setItem('auth_token', response.response.token)
+            localStorage.setItem('auth_user', JSON.stringify(response.response.user))
+            setUser(response.response.user)
             authChecked.current = true
         } else {
             throw new Error(response.message)
@@ -87,22 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const logout = useCallback(() => {
-        localStorage.removeItem('admin_token')
-        localStorage.removeItem('admin_user')
-        setAdmin(null)
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('auth_user')
+        setUser(null)
         authChecked.current = false
     }, [])
 
     return (
-        <AuthContext.Provider
-            value={{
-                admin,
-                isLoading,
-                isAuthenticated: !!admin,
-                login,
-                logout,
-            }}
-        >
+        <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout }}>
             {children}
         </AuthContext.Provider>
     )
@@ -110,8 +78,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
     const context = useContext(AuthContext)
-    if (context === undefined) {
-        throw new Error('useAuth must be used within an AuthProvider')
-    }
+    if (context === undefined) throw new Error('useAuth must be used within an AuthProvider')
     return context
 }

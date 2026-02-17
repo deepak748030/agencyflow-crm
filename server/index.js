@@ -4,7 +4,12 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 
 // Route imports
-const adminRoutes = require('./routes/adminRoutes');
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const projectRoutes = require('./routes/projectRoutes');
+const milestoneRoutes = require('./routes/milestoneRoutes');
+const taskRoutes = require('./routes/taskRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -29,41 +34,60 @@ const dbMiddleware = async (req, res, next) => {
         res.status(500).json({
             success: false,
             message: 'Unable to connect to database. Please try again.',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined,
         });
     }
 };
 
-// Apply DB middleware to all API routes
 app.use('/api', dbMiddleware);
 
 // Routes
-app.use('/api/admin', adminRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/milestones', milestoneRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Shree Jii API Server is running',
-        timestamp: new Date().toISOString()
+    res.json({ success: true, message: 'AgencyFlow CRM API is running', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (req, res) => {
+    res.json({ success: true, message: 'AgencyFlow CRM API Server' });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+
+    if (err.name === 'ValidationError') {
+        return res.status(400).json({
+            success: false,
+            message: 'Validation failed',
+            details: Object.values(err.errors).map(e => e.message),
+        });
+    }
+    if (err.code === 11000) {
+        return res.status(409).json({ success: false, message: 'Duplicate entry' });
+    }
+    if (err.name === 'JsonWebTokenError') {
+        return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+    if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ success: false, message: 'Token expired' });
+    }
+
+    res.status(err.statusCode || 500).json({
+        success: false,
+        message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message,
     });
 });
 
-// Root route
-app.get('/', (req, res) => {
-    res.json({ success: true, message: 'Shree Jii API Server' });
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ success: false, message: 'Something went wrong!' });
-});
-
-// Only start server if not in serverless environment
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => {
-        console.log(`Shree Jii Server running on port ${PORT}`);
+        console.log(`AgencyFlow CRM Server running on port ${PORT}`);
     });
 }
 
