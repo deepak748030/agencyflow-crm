@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "744771551248",
+    "project_id": "sharee-jii",
+    "storage_bucket": "sharee-jii.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:744771551248:android:cf45b77504441ba3b5ca95",
+        "android_client_info": {
+          "package_name": "com.shreejii.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUS8aLMTVD3W93aNNrYgNXuu3JYamatoc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
