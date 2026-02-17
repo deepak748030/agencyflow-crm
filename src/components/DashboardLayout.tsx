@@ -3,17 +3,11 @@ import { useState } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard,
-    FileText,
     Menu,
     X,
     LogOut,
     ChevronLeft,
     ChevronRight,
-    Settings,
-    Quote,
-    Users,
-    Bell,
-    ImageIcon,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
@@ -21,12 +15,6 @@ import shreeJiLogo from '../assets/favicon.png'
 
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/home-content', icon: FileText, label: 'Home Content' },
-    { to: '/daily-quotes', icon: Quote, label: 'Daily Quotes' },
-    { to: '/naam-jap-users', icon: Users, label: 'Naam Jap Users' },
-    { to: '/push-notifications', icon: Bell, label: 'Push Notifications' },
-    { to: '/preset-images', icon: ImageIcon, label: 'Preset Images' },
-    { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 export function DashboardLayout() {

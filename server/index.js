@@ -5,12 +5,6 @@ const connectDB = require('./config/db');
 
 // Route imports
 const adminRoutes = require('./routes/adminRoutes');
-const dailyQuoteRoutes = require('./routes/dailyQuoteRoutes');
-const naamJapRoutes = require('./routes/naamJapRoutes');
-const homeContentRoutes = require('./routes/homeContentRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const presetImageRoutes = require('./routes/presetImageRoutes');
-const stepTrackerRoutes = require('./routes/stepTrackerRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -45,12 +39,6 @@ app.use('/api', dbMiddleware);
 
 // Routes
 app.use('/api/admin', adminRoutes);
-app.use('/api/daily-quotes', dailyQuoteRoutes);
-app.use('/api/naam-jap', naamJapRoutes);
-app.use('/api/home-content', homeContentRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/preset-images', presetImageRoutes);
-app.use('/api/step-tracker', stepTrackerRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
