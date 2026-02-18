@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash, ShieldCheck } from 'lucide-react'
+import {
+    MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash,
+    Paperclip, X, FileText, Image as ImageIcon, File, Check, CheckCheck
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
     getConversations, getConversationMessages, sendMessage, getUnreadCount, markConversationRead,
-    createProjectConversation,
+    createProjectConversation, uploadChatFile,
     type Conversation, type ChatMessage
 } from '../lib/api'
 
@@ -21,8 +24,15 @@ export function ChatPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [showMobileChat, setShowMobileChat] = useState(false)
     const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
+    const [typingUsers, setTypingUsers] = useState<string[]>([])
+    const [isDragging, setIsDragging] = useState(false)
+    const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+    const [uploadingFiles, setUploadingFiles] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const chatAreaRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         fetchConversations()
@@ -41,7 +51,6 @@ export function ChatPage() {
             if (existing) {
                 selectConversation(existing)
             } else {
-                // Create conversation for this project
                 createProjectConversation(projectId).then(res => {
                     if (res.success) {
                         setConversations(prev => [res.response, ...prev])
@@ -68,6 +77,16 @@ export function ChatPage() {
     useEffect(() => {
         scrollToBottom()
     }, [messages])
+
+    // Typing indicator simulation - clear after 3s of no typing
+    const handleTyping = useCallback(() => {
+        // In a real app this would emit via Socket.io
+        // For now we simulate with local state
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = setTimeout(() => {
+            setTypingUsers([])
+        }, 3000)
+    }, [])
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -106,24 +125,88 @@ export function ChatPage() {
         } finally { if (!silent) setMessagesLoading(false) }
     }
 
+    // File handling
+    const handleFileSelect = (files: FileList | null) => {
+        if (!files) return
+        const validFiles: File[] = []
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].size <= 10 * 1024 * 1024) { // 10MB limit
+                validFiles.push(files[i])
+            }
+        }
+        setAttachedFiles(prev => [...prev, ...validFiles].slice(0, 5)) // Max 5 files
+    }
+
+    const removeAttachedFile = (index: number) => {
+        setAttachedFiles(prev => prev.filter((_, i) => i !== index))
+    }
+
+    // Drag and drop handlers
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsDragging(true)
+    }
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.currentTarget === chatAreaRef.current) {
+            setIsDragging(false)
+        }
+    }
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+    }
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsDragging(false)
+        handleFileSelect(e.dataTransfer.files)
+    }
+
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!newMessage.trim() || !activeConversation || sending) return
+        if ((!newMessage.trim() && attachedFiles.length === 0) || !activeConversation || sending) return
         setSending(true)
+        setUploadingFiles(attachedFiles.length > 0)
+
         try {
-            const res = await sendMessage(activeConversation._id, newMessage.trim())
+            // Upload files first
+            let uploadedAttachments: { name: string; url: string; type: string; size: number }[] = []
+            if (attachedFiles.length > 0) {
+                const uploadPromises = attachedFiles.map(file => uploadChatFile(file))
+                const results = await Promise.all(uploadPromises)
+                uploadedAttachments = results
+                    .filter(r => r.success)
+                    .map(r => ({ name: r.response.name, url: r.response.url, type: r.response.type, size: r.response.size }))
+            }
+
+            const msgType = uploadedAttachments.length > 0 && !newMessage.trim()
+                ? (uploadedAttachments[0].type.startsWith('image/') ? 'image' : 'file')
+                : 'text'
+
+            const res = await sendMessage(activeConversation._id, newMessage.trim(), msgType, uploadedAttachments)
             if (res.success) {
                 setMessages(prev => [...prev, res.response])
                 setNewMessage('')
+                setAttachedFiles([])
+                const lastText = newMessage.trim() || `📎 ${uploadedAttachments.length} file(s)`
                 setConversations(prev => prev.map(c =>
                     c._id === activeConversation._id
-                        ? { ...c, lastMessage: { text: newMessage.trim(), senderId: user as any, sentAt: new Date().toISOString() } }
+                        ? { ...c, lastMessage: { text: lastText, senderId: user as any, sentAt: new Date().toISOString() } }
                         : c
                 ))
             }
         } catch (err) {
             console.error('Failed to send message:', err)
-        } finally { setSending(false) }
+        } finally {
+            setSending(false)
+            setUploadingFiles(false)
+        }
     }
 
     const selectConversation = (conv: Conversation) => {
@@ -154,19 +237,42 @@ export function ChatPage() {
         return senderId === user?._id
     }
 
+    const getFileIcon = (type: string) => {
+        if (type.startsWith('image/')) return <ImageIcon className="w-4 h-4" />
+        if (type.includes('pdf')) return <FileText className="w-4 h-4" />
+        return <File className="w-4 h-4" />
+    }
+
+    const formatFileSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes} B`
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    }
+
+    // Get read status for a message (WhatsApp-style)
+    // sent = single grey check, delivered = double grey check, read = double blue check
+    const getMessageStatus = (msg: ChatMessage) => {
+        if (!isOwnMessage(msg)) return null
+        const otherParticipants = activeConversation?.participants?.filter(p => {
+            const pId = typeof p.userId === 'object' ? (p.userId as any)._id : p.userId
+            return pId !== user?._id && p.isActive
+        }) || []
+        if (otherParticipants.length === 0) return 'sent' as const
+        const seenByOthers = msg.seenBy?.filter(s => {
+            const sId = typeof s.userId === 'object' ? (s.userId as any)._id || s.userId : s.userId
+            return sId !== user?._id
+        }) || []
+        if (seenByOthers.length >= otherParticipants.length) {
+            return 'read' as const
+        }
+        if (seenByOthers.length > 0) {
+            return 'delivered' as const
+        }
+        return 'sent' as const
+    }
+
     return (
         <div className="animate-fade-in h-[calc(100vh-7rem)] flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">Chat</h1>
-                    <p className="text-muted-foreground text-sm">
-                        {user?.role === 'admin' ? (
-                            <span className="flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-primary inline" /> All project conversations</span>
-                        ) : 'Your project conversations'}
-                    </p>
-                </div>
-            </div>
-
             <div className="flex-1 flex border border-border rounded-sm overflow-hidden min-h-0">
                 {/* Conversation List */}
                 <div className={`w-full lg:w-80 xl:w-96 border-r border-border flex flex-col bg-card ${showMobileChat ? 'hidden lg:flex' : 'flex'}`}>
@@ -200,6 +306,7 @@ export function ChatPage() {
                                 const participantCount = conv.participants?.filter(p => p.isActive).length || 0
                                 const unreadCount = unreadMap[conv._id] || 0
 
+
                                 return (
                                     <button
                                         key={conv._id}
@@ -224,9 +331,11 @@ export function ChatPage() {
                                                         </span>
                                                     )}
                                                 </div>
-                                                <p className={`text-xs truncate mt-0.5 ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                                                    {conv.lastMessage?.text || 'No messages yet'}
-                                                </p>
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    <p className={`text-xs truncate ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                                        {conv.lastMessage?.text || 'No messages yet'}
+                                                    </p>
+                                                </div>
                                                 <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                                                     <Users className="w-3 h-3" />
                                                     <span>{participantCount} members</span>
@@ -241,7 +350,25 @@ export function ChatPage() {
                 </div>
 
                 {/* Chat Area */}
-                <div className={`flex-1 flex flex-col bg-background ${!showMobileChat ? 'hidden lg:flex' : 'flex'}`}>
+                <div
+                    ref={chatAreaRef}
+                    className={`flex-1 flex flex-col bg-background relative ${!showMobileChat ? 'hidden lg:flex' : 'flex'}`}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                >
+                    {/* Drag overlay */}
+                    {isDragging && activeConversation && (
+                        <div className="absolute inset-0 z-50 bg-primary/10 border-2 border-dashed border-primary rounded-sm flex items-center justify-center backdrop-blur-sm">
+                            <div className="text-center">
+                                <Paperclip className="w-12 h-12 text-primary mx-auto mb-2" />
+                                <p className="text-primary font-semibold">Drop files here to attach</p>
+                                <p className="text-muted-foreground text-sm mt-1">Max 10MB per file • Up to 5 files</p>
+                            </div>
+                        </div>
+                    )}
+
                     {activeConversation ? (
                         <>
                             <div className="h-14 px-4 flex items-center gap-3 border-b border-border bg-card flex-shrink-0">
@@ -280,6 +407,7 @@ export function ChatPage() {
                                             const prevSender = typeof messages[idx - 1]?.senderId === 'object' ? messages[idx - 1].senderId : null
                                             return (prevSender as any)?._id !== (sender as any)?._id
                                         })())
+                                        const status = getMessageStatus(msg)
 
                                         return (
                                             <div key={msg._id} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
@@ -308,7 +436,44 @@ export function ChatPage() {
                                                             ? 'bg-primary text-primary-foreground'
                                                             : 'bg-card border border-border text-foreground'
                                                             }`}>
-                                                            <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                                                            {/* Attachments */}
+                                                            {msg.attachments && msg.attachments.length > 0 && (
+                                                                <div className="space-y-2 mb-1">
+                                                                    {msg.attachments.map((att, attIdx) => (
+                                                                        att.type?.startsWith('image/') ? (
+                                                                            <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
+                                                                                <img
+                                                                                    src={att.url}
+                                                                                    alt={att.name}
+                                                                                    className="max-w-[240px] max-h-[200px] rounded-sm object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                                                />
+                                                                            </a>
+                                                                        ) : (
+                                                                            <a
+                                                                                key={attIdx}
+                                                                                href={att.url}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                className={`flex items-center gap-2 p-2 rounded-sm transition-colors ${own
+                                                                                    ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20'
+                                                                                    : 'bg-muted/50 hover:bg-muted'
+                                                                                    }`}
+                                                                            >
+                                                                                {getFileIcon(att.type)}
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <p className="text-xs font-medium truncate">{att.name}</p>
+                                                                                    <p className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                                                                                        {formatFileSize(att.size)}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </a>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            {msg.message && (
+                                                                <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                                                            )}
                                                             <div className={`flex items-center gap-1 mt-1 ${own ? 'justify-end' : ''}`}>
                                                                 <span className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
                                                                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -318,6 +483,16 @@ export function ChatPage() {
                                                                         (edited)
                                                                     </span>
                                                                 )}
+                                                                {/* WhatsApp-style check marks */}
+                                                                {status === 'read' && (
+                                                                    <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
+                                                                )}
+                                                                {status === 'delivered' && (
+                                                                    <CheckCheck className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />
+                                                                )}
+                                                                {status === 'sent' && (
+                                                                    <Check className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -326,24 +501,84 @@ export function ChatPage() {
                                         )
                                     })
                                 )}
+
+                                {/* Typing indicator */}
+                                {typingUsers.length > 0 && (
+                                    <div className="flex items-center gap-2 px-2">
+                                        <div className="flex items-center gap-1 bg-card border border-border rounded-sm px-3 py-2">
+                                            <div className="flex gap-0.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                                            </div>
+                                            <span className="text-xs text-muted-foreground ml-1">
+                                                {typingUsers.join(', ')} typing...
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div ref={messagesEndRef} />
                             </div>
+
+                            {/* Attached files preview */}
+                            {attachedFiles.length > 0 && (
+                                <div className="px-3 pt-2 border-t border-border bg-card">
+                                    <div className="flex flex-wrap gap-2">
+                                        {attachedFiles.map((file, idx) => (
+                                            <div key={idx} className="flex items-center gap-2 bg-muted/50 border border-input rounded-sm px-2 py-1.5 text-sm">
+                                                {getFileIcon(file.type)}
+                                                <span className="truncate max-w-[120px] text-xs">{file.name}</span>
+                                                <span className="text-[10px] text-muted-foreground">{formatFileSize(file.size)}</span>
+                                                <button
+                                                    onClick={() => removeAttachedFile(idx)}
+                                                    className="p-0.5 hover:bg-destructive/20 rounded-sm transition-colors"
+                                                >
+                                                    <X className="w-3 h-3 text-destructive" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             <form onSubmit={handleSend} className="p-3 border-t border-border bg-card flex-shrink-0">
                                 <div className="flex items-center gap-2">
                                     <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={e => handleFileSelect(e.target.files)}
+                                        className="hidden"
+                                        multiple
+                                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="p-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-sm transition-colors"
+                                        title="Attach files"
+                                    >
+                                        <Paperclip className="w-5 h-5" />
+                                    </button>
+                                    <input
                                         value={newMessage}
-                                        onChange={e => setNewMessage(e.target.value)}
+                                        onChange={e => { setNewMessage(e.target.value); handleTyping() }}
                                         placeholder="Type a message..."
                                         className="flex-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                         disabled={sending}
                                     />
                                     <button
                                         type="submit"
-                                        disabled={!newMessage.trim() || sending}
+                                        disabled={(!newMessage.trim() && attachedFiles.length === 0) || sending}
                                         className="p-2.5 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
                                     >
-                                        {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                        {uploadingFiles ? (
+                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                        ) : sending ? (
+                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                        ) : (
+                                            <Send className="w-5 h-5" />
+                                        )}
                                     </button>
                                 </div>
                             </form>

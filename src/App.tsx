@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
 import { DashboardLayout } from './components/DashboardLayout'
@@ -12,6 +12,12 @@ import { MilestonesPage } from './pages/MilestonesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ActivityLogsPage } from './pages/ActivityLogsPage'
 import { ChatPage } from './pages/ChatPage'
+
+function RoleRedirect() {
+    const { user } = useAuth()
+    if (user?.role === 'admin') return <DashboardPage />
+    return <Navigate to="/projects" replace />
+}
 
 function App() {
     return (
@@ -27,7 +33,7 @@ function App() {
                             </ProtectedRoute>
                         }
                     >
-                        <Route index element={<DashboardPage />} />
+                        <Route index element={<RoleRedirect />} />
                         <Route path="projects" element={<ProjectsPage />} />
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="users" element={<UsersPage />} />

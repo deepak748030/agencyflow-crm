@@ -9,15 +9,15 @@ import { useAuth } from '../context/AuthContext'
 import { ThemeToggle } from './ThemeToggle'
 import { getUnreadCount } from '../lib/api'
 
-const navItems = [
-    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/projects', icon: FolderKanban, label: 'Projects' },
-    { to: '/tasks', icon: ListTodo, label: 'Tasks' },
-    { to: '/users', icon: Users, label: 'Users' },
-    { to: '/milestones', icon: Target, label: 'Milestones' },
-    { to: '/chat', icon: MessageCircle, label: 'Chat' },
-    { to: '/activity', icon: Activity, label: 'Activity' },
-    { to: '/settings', icon: Settings, label: 'Settings' },
+const allNavItems = [
+    { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin'] },
+    { to: '/projects', icon: FolderKanban, label: 'Projects', roles: ['admin', 'manager', 'developer', 'client'] },
+    { to: '/tasks', icon: ListTodo, label: 'Tasks', roles: ['admin', 'manager', 'developer'] },
+    { to: '/users', icon: Users, label: 'Users', roles: ['admin'] },
+    { to: '/milestones', icon: Target, label: 'Milestones', roles: ['admin', 'manager', 'client'] },
+    { to: '/chat', icon: MessageCircle, label: 'Chat', roles: ['admin', 'manager', 'developer', 'client'] },
+    { to: '/activity', icon: Activity, label: 'Activity', roles: ['admin', 'manager'] },
+    { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin', 'manager', 'developer', 'client'] },
 ]
 
 export function DashboardLayout() {
@@ -27,6 +27,8 @@ export function DashboardLayout() {
     const { user, logout } = useAuth()
     const location = useLocation()
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+    const navItems = allNavItems.filter(item => item.roles.includes(user?.role || ''))
 
     const fetchUnread = async () => {
         try {

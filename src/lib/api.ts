@@ -317,9 +317,18 @@ export const getConversationMessages = async (conversationId: string, page = 1) 
     }
 }
 
-export const sendMessage = async (conversationId: string, message: string, type = 'text') => {
-    const response = await api.post(`/chat/conversations/${conversationId}/messages`, { message, type })
+export const sendMessage = async (conversationId: string, message: string, type = 'text', attachments: { name: string; url: string; type: string; size: number }[] = []) => {
+    const response = await api.post(`/chat/conversations/${conversationId}/messages`, { message, type, attachments })
     return response.data as { success: boolean; response: ChatMessage }
+}
+
+export const uploadChatFile = async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post('/chat/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data as { success: boolean; response: { name: string; url: string; type: string; size: number; publicId: string } }
 }
 
 export const getUnreadCount = async () => {

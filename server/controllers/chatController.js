@@ -2,6 +2,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Project = require('../models/Project');
 const User = require('../models/User');
+const cloudinary = require('../config/cloudinary');
 
 // GET /api/chat/conversations
 const getConversations = async (req, res) => {
@@ -146,6 +147,19 @@ const getMessages = async (req, res) => {
             { $set: { 'participants.$.lastReadAt': new Date() } }
         );
 
+        // Mark all messages in this conversation as seen by this user
+        await Message.updateMany(
+            {
+                conversationId: req.params.id,
+                isDeleted: false,
+                senderId: { $ne: req.user._id },
+                'seenBy.userId': { $ne: req.user._id },
+            },
+            {
+                $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } }
+            }
+        );
+
         res.json({
             success: true,
             response: {
@@ -159,7 +173,7 @@ const getMessages = async (req, res) => {
 };
 
 // POST /api/chat/conversations/:id/messages
-const sendMessage = async (req, res) => {
+const sendMessageHandler = async (req, res) => {
     try {
         const { message, type = 'text', attachments = [], replyTo } = req.body;
 
@@ -187,14 +201,15 @@ const sendMessage = async (req, res) => {
             conversationId: req.params.id,
             senderId: req.user._id,
             type,
-            message,
+            message: message || '',
             attachments,
             replyTo: replyTo || undefined,
             seenBy: [{ userId: req.user._id, seenAt: new Date() }],
         });
 
+        const lastText = message || (attachments.length > 0 ? `📎 ${attachments.length} file(s)` : '');
         conversation.lastMessage = {
-            text: message,
+            text: lastText,
             senderId: req.user._id,
             sentAt: new Date(),
         };
@@ -204,6 +219,43 @@ const sendMessage = async (req, res) => {
             .populate('senderId', 'name email avatar role');
 
         res.status(201).json({ success: true, response: populated });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// POST /api/chat/upload - Upload file to Cloudinary
+const uploadAttachment = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file provided' });
+        }
+
+        const result = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+                {
+                    folder: 'agencyflow/chat',
+                    resource_type: 'auto',
+                    max_bytes: 10 * 1024 * 1024, // 10MB
+                },
+                (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                }
+            );
+            stream.end(req.file.buffer);
+        });
+
+        res.json({
+            success: true,
+            response: {
+                name: req.file.originalname,
+                url: result.secure_url,
+                type: req.file.mimetype,
+                size: req.file.size,
+                publicId: result.public_id,
+            },
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -253,6 +305,20 @@ const markAsRead = async (req, res) => {
             { _id: req.params.id, 'participants.userId': req.user._id },
             { $set: { 'participants.$.lastReadAt': new Date() } }
         );
+
+        // Mark all messages as seen by this user
+        await Message.updateMany(
+            {
+                conversationId: req.params.id,
+                isDeleted: false,
+                senderId: { $ne: req.user._id },
+                'seenBy.userId': { $ne: req.user._id },
+            },
+            {
+                $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } }
+            }
+        );
+
         res.json({ success: true, message: 'Marked as read' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -302,7 +368,8 @@ module.exports = {
     getConversations,
     getOrCreateProjectConversation,
     getMessages,
-    sendMessage,
+    sendMessage: sendMessageHandler,
+    uploadAttachment,
     getUnreadCount,
     markAsRead,
     editMessage,
