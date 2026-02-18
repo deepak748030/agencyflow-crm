@@ -46,7 +46,7 @@ export function ProjectDetailPage() {
     const [creatingTask, setCreatingTask] = useState(false)
     const [creatingMilestone, setCreatingMilestone] = useState(false)
     const [showEditProject, setShowEditProject] = useState(false)
-    const [editForm, setEditForm] = useState({ name: '', description: '', priority: 'medium', deadline: '', budget: 0 })
+    const [editForm, setEditForm] = useState({ name: '', description: '', priority: 'medium', deadline: '', budget: 0, developerIds: [] as string[], managerId: '' })
     const [editSaving, setEditSaving] = useState(false)
     const [statusAction, setStatusAction] = useState<string | null>(null)
 
@@ -61,7 +61,8 @@ export function ProjectDetailPage() {
             if (projRes.success) {
                 setProject(projRes.response)
                 const p = projRes.response
-                setEditForm({ name: p.name, description: p.description || '', priority: p.priority, deadline: p.deadline ? p.deadline.split('T')[0] : '', budget: p.budget?.amount || 0 })
+                const devIds = (p.developerIds || []).map((d: any) => typeof d === 'object' ? d._id : d)
+                setEditForm({ name: p.name, description: p.description || '', priority: p.priority, deadline: p.deadline ? p.deadline.split('T')[0] : '', budget: p.budget?.amount || 0, developerIds: devIds, managerId: p.managerId ? (typeof p.managerId === 'object' ? p.managerId._id : p.managerId) : '' })
             }
             if (milRes.success) setMilestones(milRes.response)
             if (taskRes.success) setTasks(taskRes.response.tasks)
@@ -108,7 +109,7 @@ export function ProjectDetailPage() {
         e.preventDefault()
         setEditSaving(true)
         try {
-            await updateProject(id!, { name: editForm.name, description: editForm.description, priority: editForm.priority, deadline: editForm.deadline || null, budget: { amount: editForm.budget, currency: 'INR' } })
+            await updateProject(id!, { name: editForm.name, description: editForm.description, priority: editForm.priority, deadline: editForm.deadline || null, budget: { amount: editForm.budget, currency: 'INR' }, developerIds: editForm.developerIds, managerId: editForm.managerId || null })
             setShowEditProject(false)
             fetchAll()
         } catch { }
@@ -420,6 +421,36 @@ export function ProjectDetailPage() {
                                 <label className="text-sm font-medium text-foreground">Description</label>
                                 <textarea value={editForm.description} onChange={e => setEditForm({ ...editForm, description: e.target.value })} rows={3}
                                     className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-foreground">Manager</label>
+                                <select value={editForm.managerId} onChange={e => setEditForm({ ...editForm, managerId: e.target.value })}
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    <option value="">No manager</option>
+                                    {users.filter(u => u.role === 'manager' || u.role === 'admin').map(u => <option key={u._id} value={u._id}>{u.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-foreground">Developers</label>
+                                <div className="mt-1 space-y-2">
+                                    <div className="flex flex-wrap gap-2">
+                                        {editForm.developerIds.map(devId => {
+                                            const dev = users.find(u => u._id === devId)
+                                            return dev ? (
+                                                <span key={devId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-xs rounded-sm">
+                                                    {dev.name}
+                                                    <button type="button" onClick={() => setEditForm({ ...editForm, developerIds: editForm.developerIds.filter(id => id !== devId) })}
+                                                        className="hover:text-destructive"><X className="w-3 h-3" /></button>
+                                                </span>
+                                            ) : null
+                                        })}
+                                    </div>
+                                    <select value="" onChange={e => { if (e.target.value && !editForm.developerIds.includes(e.target.value)) setEditForm({ ...editForm, developerIds: [...editForm.developerIds, e.target.value] }) }}
+                                        className="w-full px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        <option value="">Add developer...</option>
+                                        {users.filter(u => u.role === 'developer' && !editForm.developerIds.includes(u._id)).map(u => <option key={u._id} value={u._id}>{u.name} ({u.email})</option>)}
+                                    </select>
+                                </div>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
                                 <div>

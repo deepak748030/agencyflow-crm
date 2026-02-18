@@ -1,6 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+
+// Socket.io
+const { initializeSocket } = require('./socket/socketManager');
 
 // Middleware imports
 const dbMiddleware = require('./middleware/dbMiddleware');
@@ -18,7 +22,11 @@ const activityRoutes = require('./routes/activityRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Initialize Socket.io
+initializeSocket(server);
 
 // Global middleware
 app.use(cors({
@@ -56,10 +64,10 @@ app.get('/', (req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-// Start server (non-production)
+// Start server using http server (supports both HTTP + WebSocket)
 if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => {
-        console.log(`AgencyFlow CRM Server running on port ${PORT}`);
+    server.listen(PORT, () => {
+        console.log(`AgencyFlow CRM Server running on port ${PORT} (with Socket.io)`);
     });
 }
 

@@ -3,31 +3,18 @@ const Message = require('../models/Message');
 const Project = require('../models/Project');
 const User = require('../models/User');
 const cloudinary = require('../config/cloudinary');
+const { getIO } = require('../socket/socketManager');
 
 // GET /api/chat/conversations
 const getConversations = async (req, res) => {
     try {
-        let filter = {};
+        const userId = req.user._id;
 
         if (req.user.role === 'admin') {
-            filter = {};
-        } else {
-            filter = {
-                'participants.userId': req.user._id,
-                'participants.isActive': true,
-            };
-        }
-
-        const conversations = await Conversation.find(filter)
-            .populate('projectId', 'name status')
-            .populate('participants.userId', 'name email avatar role')
-            .populate('lastMessage.senderId', 'name')
-            .sort({ updatedAt: -1 });
-
-        if (req.user.role === 'admin') {
-            const existingProjectIds = conversations
+            const allConversations = await Conversation.find({});
+            const existingProjectIds = allConversations
                 .filter(c => c.projectId)
-                .map(c => c.projectId._id?.toString() || c.projectId.toString());
+                .map(c => c.projectId.toString());
 
             const projectsWithoutChat = await Project.find({
                 _id: { $nin: existingProjectIds },
@@ -40,40 +27,54 @@ const getConversations = async (req, res) => {
                 if (project.managerId) participantIds.add(project.managerId.toString());
                 if (project.developerIds) project.developerIds.forEach(id => participantIds.add(id.toString()));
                 if (project.createdBy) participantIds.add(project.createdBy.toString());
+                participantIds.add(userId.toString());
 
                 const users = await User.find({ _id: { $in: Array.from(participantIds) } });
                 const participants = users.map(u => ({
-                    userId: u._id,
-                    role: u.role,
-                    joinedAt: new Date(),
-                    lastReadAt: new Date(),
-                    isActive: true,
+                    userId: u._id, role: u.role, joinedAt: new Date(), lastReadAt: new Date(), isActive: true,
                 }));
 
-                if (!participantIds.has(req.user._id.toString())) {
-                    participants.push({
-                        userId: req.user._id,
-                        role: 'admin',
-                        joinedAt: new Date(),
-                        lastReadAt: new Date(),
-                        isActive: true,
-                    });
-                }
-
-                await Conversation.create({
-                    projectId: project._id,
-                    type: 'project_group',
-                    participants,
-                });
+                await Conversation.create({ projectId: project._id, type: 'project_group', participants });
             }
 
-            if (projectsWithoutChat.length > 0) {
-                const updatedConversations = await Conversation.find({})
-                    .populate('projectId', 'name status')
-                    .populate('participants.userId', 'name email avatar role')
-                    .populate('lastMessage.senderId', 'name')
-                    .sort({ updatedAt: -1 });
-                return res.json({ success: true, response: updatedConversations });
+            const conversations = await Conversation.find({})
+                .populate('projectId', 'name status')
+                .populate('participants.userId', 'name email avatar role')
+                .populate('lastMessage.senderId', 'name')
+                .sort({ updatedAt: -1 });
+
+            return res.json({ success: true, response: conversations });
+        }
+
+        // Non-admin: find projects this user is assigned to
+        const roleFilter = {};
+        if (req.user.role === 'client') roleFilter.clientId = userId;
+        else if (req.user.role === 'manager') roleFilter.managerId = userId;
+        else if (req.user.role === 'developer') roleFilter.developerIds = userId;
+
+        const userProjects = await Project.find(roleFilter).select('_id');
+        const projectIds = userProjects.map(p => p._id);
+
+        const conversations = await Conversation.find({
+            projectId: { $in: projectIds },
+        })
+            .populate('projectId', 'name status')
+            .populate('participants.userId', 'name email avatar role')
+            .populate('lastMessage.senderId', 'name')
+            .sort({ updatedAt: -1 });
+
+        // Ensure user is a participant in each conversation
+        for (const conv of conversations) {
+            const isParticipant = conv.participants.some(
+                p => p.userId && p.userId._id?.toString() === userId.toString()
+            );
+            if (!isParticipant) {
+                conv.participants.push({
+                    userId: userId, role: req.user.role,
+                    joinedAt: new Date(), lastReadAt: new Date(), isActive: true,
+                });
+                await conv.save();
+                await conv.populate('participants.userId', 'name email avatar role');
             }
         }
 
@@ -100,17 +101,11 @@ const getOrCreateProjectConversation = async (req, res) => {
 
             const users = await User.find({ _id: { $in: Array.from(participantIds) } });
             const participants = users.map(u => ({
-                userId: u._id,
-                role: u.role,
-                joinedAt: new Date(),
-                lastReadAt: new Date(),
-                isActive: true,
+                userId: u._id, role: u.role, joinedAt: new Date(), lastReadAt: new Date(), isActive: true,
             }));
 
             conversation = await Conversation.create({
-                projectId: project._id,
-                type: 'project_group',
-                participants,
+                projectId: project._id, type: 'project_group', participants,
             });
         }
 
@@ -147,7 +142,6 @@ const getMessages = async (req, res) => {
             { $set: { 'participants.$.lastReadAt': new Date() } }
         );
 
-        // Mark all messages in this conversation as seen by this user
         await Message.updateMany(
             {
                 conversationId: req.params.id,
@@ -155,9 +149,7 @@ const getMessages = async (req, res) => {
                 senderId: { $ne: req.user._id },
                 'seenBy.userId': { $ne: req.user._id },
             },
-            {
-                $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } }
-            }
+            { $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } } }
         );
 
         res.json({
@@ -186,11 +178,8 @@ const sendMessageHandler = async (req, res) => {
 
         if (!isParticipant && req.user.role === 'admin') {
             conversation.participants.push({
-                userId: req.user._id,
-                role: 'admin',
-                joinedAt: new Date(),
-                lastReadAt: new Date(),
-                isActive: true,
+                userId: req.user._id, role: 'admin',
+                joinedAt: new Date(), lastReadAt: new Date(), isActive: true,
             });
             await conversation.save();
         } else if (!isParticipant) {
@@ -218,13 +207,33 @@ const sendMessageHandler = async (req, res) => {
         const populated = await Message.findById(newMessage._id)
             .populate('senderId', 'name email avatar role');
 
+        // Emit via Socket.io
+        const io = getIO();
+        if (io) {
+            io.to(`conv:${req.params.id}`).emit('message:new', {
+                conversationId: req.params.id,
+                message: populated,
+            });
+
+            // Notify all participants about conversation update (for sidebar)
+            conversation.participants.forEach(p => {
+                const pId = p.userId.toString();
+                if (pId !== req.user._id.toString()) {
+                    io.to(`conv:${req.params.id}`).emit('conversation:updated', {
+                        conversationId: req.params.id,
+                        lastMessage: { text: lastText, senderId: req.user._id, sentAt: new Date() },
+                    });
+                }
+            });
+        }
+
         res.status(201).json({ success: true, response: populated });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// POST /api/chat/upload - Upload file to Cloudinary
+// POST /api/chat/upload
 const uploadAttachment = async (req, res) => {
     try {
         if (!req.file) {
@@ -233,11 +242,7 @@ const uploadAttachment = async (req, res) => {
 
         const result = await new Promise((resolve, reject) => {
             const stream = cloudinary.uploader.upload_stream(
-                {
-                    folder: 'agencyflow/chat',
-                    resource_type: 'auto',
-                    max_bytes: 10 * 1024 * 1024, // 10MB
-                },
+                { folder: 'agencyflow/chat', resource_type: 'auto', max_bytes: 10 * 1024 * 1024 },
                 (error, result) => {
                     if (error) reject(error);
                     else resolve(result);
@@ -306,7 +311,6 @@ const markAsRead = async (req, res) => {
             { $set: { 'participants.$.lastReadAt': new Date() } }
         );
 
-        // Mark all messages as seen by this user
         await Message.updateMany(
             {
                 conversationId: req.params.id,
@@ -314,10 +318,19 @@ const markAsRead = async (req, res) => {
                 senderId: { $ne: req.user._id },
                 'seenBy.userId': { $ne: req.user._id },
             },
-            {
-                $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } }
-            }
+            { $addToSet: { seenBy: { userId: req.user._id, seenAt: new Date() } } }
         );
+
+        // Emit read receipt via Socket.io
+        const io = getIO();
+        if (io) {
+            io.to(`conv:${req.params.id}`).emit('messages:read', {
+                conversationId: req.params.id,
+                userId: req.user._id.toString(),
+                userName: req.user.name,
+                readAt: new Date().toISOString(),
+            });
+        }
 
         res.json({ success: true, message: 'Marked as read' });
     } catch (error) {
@@ -326,7 +339,7 @@ const markAsRead = async (req, res) => {
 };
 
 // PUT /api/chat/messages/:id
-const editMessage = async (req, res) => {
+const editMessageHandler = async (req, res) => {
     try {
         const msg = await Message.findById(req.params.id);
         if (!msg) return res.status(404).json({ success: false, message: 'Message not found' });
@@ -340,6 +353,16 @@ const editMessage = async (req, res) => {
         await msg.save();
 
         const populated = await Message.findById(msg._id).populate('senderId', 'name email avatar role');
+
+        // Emit via Socket.io
+        const io = getIO();
+        if (io) {
+            io.to(`conv:${msg.conversationId.toString()}`).emit('message:edited', {
+                conversationId: msg.conversationId.toString(),
+                message: populated,
+            });
+        }
+
         res.json({ success: true, response: populated });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -347,7 +370,7 @@ const editMessage = async (req, res) => {
 };
 
 // DELETE /api/chat/messages/:id
-const deleteMessage = async (req, res) => {
+const deleteMessageHandler = async (req, res) => {
     try {
         const msg = await Message.findById(req.params.id);
         if (!msg) return res.status(404).json({ success: false, message: 'Message not found' });
@@ -355,8 +378,18 @@ const deleteMessage = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Cannot delete this message' });
         }
 
+        const conversationId = msg.conversationId.toString();
         msg.isDeleted = true;
         await msg.save();
+
+        // Emit via Socket.io
+        const io = getIO();
+        if (io) {
+            io.to(`conv:${conversationId}`).emit('message:deleted', {
+                conversationId,
+                messageId: msg._id.toString(),
+            });
+        }
 
         res.json({ success: true, message: 'Message deleted' });
     } catch (error) {
@@ -372,6 +405,6 @@ module.exports = {
     uploadAttachment,
     getUnreadCount,
     markAsRead,
-    editMessage,
-    deleteMessage,
+    editMessage: editMessageHandler,
+    deleteMessage: deleteMessageHandler,
 };

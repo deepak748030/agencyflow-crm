@@ -2,14 +2,25 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
     MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash,
-    Paperclip, X, FileText, Image as ImageIcon, File, Check, CheckCheck
+    Paperclip, X, FileText, Image as ImageIcon, File, Check, CheckCheck,
+    Edit2, Trash2, Copy
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
     getConversations, getConversationMessages, sendMessage, getUnreadCount, markConversationRead,
-    createProjectConversation, uploadChatFile,
+    createProjectConversation, uploadChatFile, editMessage, deleteMessage,
     type Conversation, type ChatMessage
 } from '../lib/api'
+import {
+    connectSocket, disconnectSocket, joinConversation, leaveConversation,
+    emitTypingStart, emitTypingStop, emitMessagesRead
+} from '../lib/socket'
+
+interface ContextMenu {
+    x: number
+    y: number
+    message: ChatMessage
+}
 
 export function ChatPage() {
     const { user } = useAuth()
@@ -24,20 +35,125 @@ export function ChatPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [showMobileChat, setShowMobileChat] = useState(false)
     const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
-    const [typingUsers, setTypingUsers] = useState<string[]>([])
+    const [typingUsers, setTypingUsers] = useState<Record<string, string>>({})
     const [isDragging, setIsDragging] = useState(false)
     const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-    const [uploadingFiles, setUploadingFiles] = useState(false)
+    const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+    const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null)
+    const [editText, setEditText] = useState('')
+    const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set())
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const chatAreaRef = useRef<HTMLDivElement>(null)
+    const editInputRef = useRef<HTMLInputElement>(null)
+    const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const activeConvRef = useRef<string | null>(null)
 
+    // Connect Socket.io on mount
     useEffect(() => {
+        const token = localStorage.getItem('auth_token')
+        if (token) {
+            const socket = connectSocket(token)
+
+            // Listen for real-time events
+            socket.on('message:new', ({ conversationId, message: msg }) => {
+                if (activeConvRef.current === conversationId) {
+                    setMessages(prev => {
+                        if (prev.some(m => m._id === msg._id)) return prev
+                        return [...prev, msg]
+                    })
+                }
+                setConversations(prev => prev.map(c => {
+                    if (c._id === conversationId) {
+                        return {
+                            ...c,
+                            lastMessage: {
+                                text: msg.message || '📎 Attachment',
+                                senderId: msg.senderId,
+                                sentAt: msg.createdAt,
+                            }
+                        }
+                    }
+                    return c
+                }))
+                // Update unread if not active conversation
+                if (activeConvRef.current !== conversationId) {
+                    setUnreadMap(prev => ({
+                        ...prev,
+                        [conversationId]: (prev[conversationId] || 0) + 1
+                    }))
+                }
+            })
+
+            socket.on('message:edited', ({ conversationId, message: msg }) => {
+                if (activeConvRef.current === conversationId) {
+                    setMessages(prev => prev.map(m => m._id === msg._id ? msg : m))
+                }
+            })
+
+            socket.on('message:deleted', ({ conversationId, messageId }) => {
+                if (activeConvRef.current === conversationId) {
+                    setMessages(prev => prev.filter(m => m._id !== messageId))
+                }
+            })
+
+            socket.on('messages:read', ({ conversationId, userId: readerId }) => {
+                if (activeConvRef.current === conversationId && readerId !== user?._id) {
+                    setMessages(prev => prev.map(m => {
+                        const senderId = typeof m.senderId === 'object' ? m.senderId._id : m.senderId
+                        if (senderId === user?._id) {
+                            const alreadySeen = m.seenBy?.some(s => {
+                                const sId = typeof s.userId === 'object' ? (s.userId as any)._id : s.userId
+                                return sId === readerId
+                            })
+                            if (!alreadySeen) {
+                                return {
+                                    ...m,
+                                    seenBy: [...(m.seenBy || []), { userId: readerId, seenAt: new Date().toISOString() }]
+                                }
+                            }
+                        }
+                        return m
+                    }))
+                }
+            })
+
+            socket.on('typing:start', ({ conversationId, userId: typerId, userName }) => {
+                if (activeConvRef.current === conversationId && typerId !== user?._id) {
+                    setTypingUsers(prev => ({ ...prev, [typerId]: userName }))
+                }
+            })
+
+            socket.on('typing:stop', ({ conversationId, userId: typerId }) => {
+                if (activeConvRef.current === conversationId) {
+                    setTypingUsers(prev => {
+                        const next = { ...prev }
+                        delete next[typerId]
+                        return next
+                    })
+                }
+            })
+
+            socket.on('user:online', ({ userId: uid }) => {
+                setOnlineUserIds(prev => new Set([...prev, uid]))
+            })
+
+            socket.on('user:offline', ({ userId: uid }) => {
+                setOnlineUserIds(prev => {
+                    const next = new Set(prev)
+                    next.delete(uid)
+                    return next
+                })
+            })
+        }
+
         fetchConversations()
         fetchUnread()
-        return () => { if (pollRef.current) clearInterval(pollRef.current) }
+
+        return () => {
+            disconnectSocket()
+        }
     }, [])
 
     // Auto-open project conversation from query param
@@ -61,36 +177,53 @@ export function ChatPage() {
         }
     }, [conversations.length, searchParams])
 
+    // Join/leave conversation rooms
     useEffect(() => {
         if (activeConversation) {
-            fetchMessages(activeConversation._id)
-            handleMarkRead(activeConversation._id)
-            if (pollRef.current) clearInterval(pollRef.current)
-            pollRef.current = setInterval(() => {
-                fetchMessages(activeConversation._id, true)
-                fetchUnread()
-            }, 3000)
+            const convId = activeConversation._id
+            activeConvRef.current = convId
+            joinConversation(convId)
+            fetchMessages(convId)
+            handleMarkRead(convId)
+            emitMessagesRead(convId)
         }
-        return () => { if (pollRef.current) clearInterval(pollRef.current) }
+        return () => {
+            if (activeConvRef.current) {
+                leaveConversation(activeConvRef.current)
+                activeConvRef.current = null
+            }
+            setTypingUsers({})
+        }
     }, [activeConversation?._id])
 
+    // Join all conversation rooms for sidebar updates
     useEffect(() => {
-        scrollToBottom()
-    }, [messages])
+        conversations.forEach(c => joinConversation(c._id))
+    }, [conversations])
 
-    // Typing indicator simulation - clear after 3s of no typing
+    useEffect(() => { scrollToBottom() }, [messages])
+
+    useEffect(() => {
+        if (editingMessage && editInputRef.current) editInputRef.current.focus()
+    }, [editingMessage])
+
+    useEffect(() => {
+        const handler = () => setContextMenu(null)
+        if (contextMenu) window.addEventListener('click', handler)
+        return () => window.removeEventListener('click', handler)
+    }, [contextMenu])
+
+    // Typing with Socket.io
     const handleTyping = useCallback(() => {
-        // In a real app this would emit via Socket.io
-        // For now we simulate with local state
+        if (!activeConversation) return
+        emitTypingStart(activeConversation._id)
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
         typingTimeoutRef.current = setTimeout(() => {
-            setTypingUsers([])
-        }, 3000)
-    }, [])
+            if (activeConversation) emitTypingStop(activeConversation._id)
+        }, 2000)
+    }, [activeConversation?._id])
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
+    const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
 
     const fetchUnread = async () => {
         try {
@@ -103,6 +236,7 @@ export function ChatPage() {
         try {
             await markConversationRead(convId)
             setUnreadMap(prev => { const n = { ...prev }; delete n[convId]; return n })
+            emitMessagesRead(convId)
         } catch { }
     }
 
@@ -110,9 +244,8 @@ export function ChatPage() {
         try {
             const res = await getConversations()
             if (res.success) setConversations(res.response)
-        } catch (err) {
-            console.error('Failed to fetch conversations:', err)
-        } finally { setLoading(false) }
+        } catch (err) { console.error('Failed to fetch conversations:', err) }
+        finally { setLoading(false) }
     }
 
     const fetchMessages = async (conversationId: string, silent = false) => {
@@ -120,78 +253,50 @@ export function ChatPage() {
         try {
             const res = await getConversationMessages(conversationId)
             if (res.success) setMessages(res.response.messages)
-        } catch (err) {
-            console.error('Failed to fetch messages:', err)
-        } finally { if (!silent) setMessagesLoading(false) }
+        } catch (err) { console.error('Failed to fetch messages:', err) }
+        finally { if (!silent) setMessagesLoading(false) }
     }
 
-    // File handling
     const handleFileSelect = (files: FileList | null) => {
         if (!files) return
         const validFiles: File[] = []
         for (let i = 0; i < files.length; i++) {
-            if (files[i].size <= 10 * 1024 * 1024) { // 10MB limit
-                validFiles.push(files[i])
-            }
+            if (files[i].size <= 10 * 1024 * 1024) validFiles.push(files[i])
         }
-        setAttachedFiles(prev => [...prev, ...validFiles].slice(0, 5)) // Max 5 files
+        setAttachedFiles(prev => [...prev, ...validFiles].slice(0, 5))
     }
 
-    const removeAttachedFile = (index: number) => {
-        setAttachedFiles(prev => prev.filter((_, i) => i !== index))
-    }
+    const removeAttachedFile = (index: number) => setAttachedFiles(prev => prev.filter((_, i) => i !== index))
 
-    // Drag and drop handlers
-    const handleDragEnter = (e: React.DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(true)
-    }
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.currentTarget === chatAreaRef.current) {
-            setIsDragging(false)
-        }
-    }
-
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDragging(false)
-        handleFileSelect(e.dataTransfer.files)
-    }
+    const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }
+    const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (e.currentTarget === chatAreaRef.current) setIsDragging(false) }
+    const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
+    const handleDrop = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); handleFileSelect(e.dataTransfer.files) }
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
         if ((!newMessage.trim() && attachedFiles.length === 0) || !activeConversation || sending) return
         setSending(true)
-        setUploadingFiles(attachedFiles.length > 0)
+
+        // Stop typing indicator
+        if (activeConversation) emitTypingStop(activeConversation._id)
 
         try {
-            // Upload files first
             let uploadedAttachments: { name: string; url: string; type: string; size: number }[] = []
             if (attachedFiles.length > 0) {
-                const uploadPromises = attachedFiles.map(file => uploadChatFile(file))
-                const results = await Promise.all(uploadPromises)
-                uploadedAttachments = results
-                    .filter(r => r.success)
-                    .map(r => ({ name: r.response.name, url: r.response.url, type: r.response.type, size: r.response.size }))
+                const results = await Promise.all(attachedFiles.map(file => uploadChatFile(file)))
+                uploadedAttachments = results.filter(r => r.success).map(r => ({ name: r.response.name, url: r.response.url, type: r.response.type, size: r.response.size }))
             }
-
             const msgType = uploadedAttachments.length > 0 && !newMessage.trim()
-                ? (uploadedAttachments[0].type.startsWith('image/') ? 'image' : 'file')
-                : 'text'
-
+                ? (uploadedAttachments[0].type.startsWith('image/') ? 'image' : 'file') : 'text'
             const res = await sendMessage(activeConversation._id, newMessage.trim(), msgType, uploadedAttachments)
             if (res.success) {
-                setMessages(prev => [...prev, res.response])
+                // Socket.io will handle adding the message via 'message:new' event
+                // But add it locally too for instant feedback (deduped by _id)
+                setMessages(prev => {
+                    if (prev.some(m => m._id === res.response._id)) return prev
+                    return [...prev, res.response]
+                })
                 setNewMessage('')
                 setAttachedFiles([])
                 const lastText = newMessage.trim() || `📎 ${uploadedAttachments.length} file(s)`
@@ -201,12 +306,58 @@ export function ChatPage() {
                         : c
                 ))
             }
-        } catch (err) {
-            console.error('Failed to send message:', err)
-        } finally {
-            setSending(false)
-            setUploadingFiles(false)
-        }
+        } catch (err) { console.error('Failed to send:', err) }
+        finally { setSending(false) }
+    }
+
+    const handleContextMenu = (e: React.MouseEvent, msg: ChatMessage) => {
+        e.preventDefault()
+        setContextMenu({ x: e.clientX, y: e.clientY, message: msg })
+    }
+
+    const handleTouchStart = (msg: ChatMessage) => {
+        longPressTimerRef.current = setTimeout(() => {
+            setContextMenu({ x: window.innerWidth / 2 - 80, y: window.innerHeight / 2, message: msg })
+        }, 500)
+    }
+
+    const handleTouchEnd = () => {
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    }
+
+    const handleEditStart = (msg: ChatMessage) => {
+        setEditingMessage(msg)
+        setEditText(msg.message)
+        setContextMenu(null)
+    }
+
+    const handleEditSave = async () => {
+        if (!editingMessage || !editText.trim()) return
+        try {
+            const res = await editMessage(editingMessage._id, editText.trim())
+            if (res.success) {
+                // Socket.io 'message:edited' event will handle this for other users
+                setMessages(prev => prev.map(m => m._id === editingMessage._id ? { ...m, message: editText.trim(), isEdited: true } : m))
+            }
+        } catch (err) { console.error('Edit failed:', err) }
+        setEditingMessage(null)
+        setEditText('')
+    }
+
+    const handleDeleteMessage = async (msg: ChatMessage) => {
+        setContextMenu(null)
+        try {
+            const res = await deleteMessage(msg._id)
+            if (res.success) {
+                // Socket.io 'message:deleted' event will handle this for other users
+                setMessages(prev => prev.filter(m => m._id !== msg._id))
+            }
+        } catch (err) { console.error('Delete failed:', err) }
+    }
+
+    const handleCopyMessage = (msg: ChatMessage) => {
+        navigator.clipboard.writeText(msg.message).catch(() => { })
+        setContextMenu(null)
     }
 
     const selectConversation = (conv: Conversation) => {
@@ -249,8 +400,6 @@ export function ChatPage() {
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     }
 
-    // Get read status for a message (WhatsApp-style)
-    // sent = single grey check, delivered = double grey check, read = double blue check
     const getMessageStatus = (msg: ChatMessage) => {
         if (!isOwnMessage(msg)) return null
         const otherParticipants = activeConversation?.participants?.filter(p => {
@@ -262,14 +411,12 @@ export function ChatPage() {
             const sId = typeof s.userId === 'object' ? (s.userId as any)._id || s.userId : s.userId
             return sId !== user?._id
         }) || []
-        if (seenByOthers.length >= otherParticipants.length) {
-            return 'read' as const
-        }
-        if (seenByOthers.length > 0) {
-            return 'delivered' as const
-        }
+        if (seenByOthers.length >= otherParticipants.length) return 'read' as const
+        if (seenByOthers.length > 0) return 'delivered' as const
         return 'sent' as const
     }
+
+    const typingUserNames = Object.values(typingUsers)
 
     return (
         <div className="animate-fade-in h-[calc(100vh-7rem)] flex flex-col">
@@ -279,20 +426,14 @@ export function ChatPage() {
                     <div className="p-3 border-b border-border">
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
+                            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                                 placeholder="Search conversations..."
-                                className="w-full pl-9 pr-4 py-2 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
+                                className="w-full pl-9 pr-4 py-2 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                         </div>
                     </div>
-
                     <div className="flex-1 overflow-y-auto">
                         {loading ? (
-                            <div className="flex items-center justify-center h-32">
-                                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                            </div>
+                            <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
                         ) : filteredConversations.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm">
                                 <MessageCircle className="w-8 h-8 mb-2 opacity-50" />
@@ -305,14 +446,9 @@ export function ChatPage() {
                                 const isActive = activeConversation?._id === conv._id
                                 const participantCount = conv.participants?.filter(p => p.isActive).length || 0
                                 const unreadCount = unreadMap[conv._id] || 0
-
-
                                 return (
-                                    <button
-                                        key={conv._id}
-                                        onClick={() => selectConversation(conv)}
-                                        className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${isActive ? 'bg-primary/10 border-l-2 border-l-primary' : 'hover:bg-muted/50'}`}
-                                    >
+                                    <button key={conv._id} onClick={() => selectConversation(conv)}
+                                        className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${isActive ? 'bg-primary/10 border-l-2 border-l-primary' : 'hover:bg-muted/50'}`}>
                                         <div className="flex items-start gap-3">
                                             <div className="w-10 h-10 rounded-sm bg-primary/20 flex items-center justify-center flex-shrink-0 relative">
                                                 <Hash className="w-5 h-5 text-primary" />
@@ -331,14 +467,11 @@ export function ChatPage() {
                                                         </span>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-1 mt-0.5">
-                                                    <p className={`text-xs truncate ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                                                        {conv.lastMessage?.text || 'No messages yet'}
-                                                    </p>
-                                                </div>
+                                                <p className={`text-xs truncate mt-0.5 ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                                    {conv.lastMessage?.text || 'No messages yet'}
+                                                </p>
                                                 <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                                                    <Users className="w-3 h-3" />
-                                                    <span>{participantCount} members</span>
+                                                    <Users className="w-3 h-3" /><span>{participantCount} members</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -350,15 +483,10 @@ export function ChatPage() {
                 </div>
 
                 {/* Chat Area */}
-                <div
-                    ref={chatAreaRef}
+                <div ref={chatAreaRef}
                     className={`flex-1 flex flex-col bg-background relative ${!showMobileChat ? 'hidden lg:flex' : 'flex'}`}
-                    onDragEnter={handleDragEnter}
-                    onDragLeave={handleDragLeave}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                >
-                    {/* Drag overlay */}
+                    onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}>
+
                     {isDragging && activeConversation && (
                         <div className="absolute inset-0 z-50 bg-primary/10 border-2 border-dashed border-primary rounded-sm flex items-center justify-center backdrop-blur-sm">
                             <div className="text-center">
@@ -384,15 +512,20 @@ export function ChatPage() {
                                     </p>
                                     <p className="text-xs text-muted-foreground">
                                         {activeConversation.participants?.filter(p => p.isActive).length || 0} members
+                                        {(() => {
+                                            const onlineCount = activeConversation.participants?.filter(p => {
+                                                const pId = typeof p.userId === 'object' ? (p.userId as any)._id : p.userId
+                                                return p.isActive && onlineUserIds.has(pId)
+                                            }).length || 0
+                                            return onlineCount > 0 ? ` • ${onlineCount} online` : ''
+                                        })()}
                                     </p>
                                 </div>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                                 {messagesLoading ? (
-                                    <div className="flex items-center justify-center h-full">
-                                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                                    </div>
+                                    <div className="flex items-center justify-center h-full"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                                 ) : messages.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                                         <MessageCircle className="w-12 h-12 mb-3 opacity-30" />
@@ -410,14 +543,18 @@ export function ChatPage() {
                                         const status = getMessageStatus(msg)
 
                                         return (
-                                            <div key={msg._id} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
+                                            <div key={msg._id} className={`flex ${own ? 'justify-end' : 'justify-start'} group`}
+                                                onContextMenu={(e) => handleContextMenu(e, msg)}
+                                                onTouchStart={() => handleTouchStart(msg)}
+                                                onTouchEnd={handleTouchEnd}
+                                                onTouchMove={handleTouchEnd}>
                                                 <div className={`flex gap-2 max-w-[75%] ${own ? 'flex-row-reverse' : ''}`}>
                                                     {!own && (
                                                         <div className="flex-shrink-0 mt-auto">
                                                             {showAvatar ? (
                                                                 <div className="w-7 h-7 rounded-sm bg-muted flex items-center justify-center">
                                                                     {sender?.avatar ? (
-                                                                        <img src={sender.avatar} className="w-full h-full object-cover rounded-sm" />
+                                                                        <img src={sender.avatar} className="w-full h-full object-cover rounded-sm" alt="" />
                                                                     ) : (
                                                                         <span className="text-xs font-medium">{getInitials(sender?.name || '')}</span>
                                                                     )}
@@ -432,69 +569,50 @@ export function ChatPage() {
                                                                 <span className="ml-1 text-primary/60 capitalize">({sender?.role})</span>
                                                             </p>
                                                         )}
-                                                        <div className={`px-3 py-2 rounded-sm text-sm ${own
-                                                            ? 'bg-primary text-primary-foreground'
-                                                            : 'bg-card border border-border text-foreground'
-                                                            }`}>
-                                                            {/* Attachments */}
-                                                            {msg.attachments && msg.attachments.length > 0 && (
-                                                                <div className="space-y-2 mb-1">
-                                                                    {msg.attachments.map((att, attIdx) => (
-                                                                        att.type?.startsWith('image/') ? (
-                                                                            <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
-                                                                                <img
-                                                                                    src={att.url}
-                                                                                    alt={att.name}
-                                                                                    className="max-w-[240px] max-h-[200px] rounded-sm object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                                                                />
-                                                                            </a>
-                                                                        ) : (
-                                                                            <a
-                                                                                key={attIdx}
-                                                                                href={att.url}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className={`flex items-center gap-2 p-2 rounded-sm transition-colors ${own
-                                                                                    ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20'
-                                                                                    : 'bg-muted/50 hover:bg-muted'
-                                                                                    }`}
-                                                                            >
-                                                                                {getFileIcon(att.type)}
-                                                                                <div className="flex-1 min-w-0">
-                                                                                    <p className="text-xs font-medium truncate">{att.name}</p>
-                                                                                    <p className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                                                                                        {formatFileSize(att.size)}
-                                                                                    </p>
-                                                                                </div>
-                                                                            </a>
-                                                                        )
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                            {msg.message && (
-                                                                <p className="whitespace-pre-wrap break-words">{msg.message}</p>
-                                                            )}
-                                                            <div className={`flex items-center gap-1 mt-1 ${own ? 'justify-end' : ''}`}>
-                                                                <span className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                                                                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                                {msg.isEdited && (
-                                                                    <span className={`text-[10px] ${own ? 'text-primary-foreground/50' : 'text-muted-foreground/60'}`}>
-                                                                        (edited)
-                                                                    </span>
-                                                                )}
-                                                                {/* WhatsApp-style check marks */}
-                                                                {status === 'read' && (
-                                                                    <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
-                                                                )}
-                                                                {status === 'delivered' && (
-                                                                    <CheckCheck className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />
-                                                                )}
-                                                                {status === 'sent' && (
-                                                                    <Check className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />
-                                                                )}
+                                                        {editingMessage?._id === msg._id ? (
+                                                            <div className="flex items-center gap-2">
+                                                                <input ref={editInputRef} value={editText} onChange={e => setEditText(e.target.value)}
+                                                                    onKeyDown={e => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') { setEditingMessage(null); setEditText('') } }}
+                                                                    className="px-3 py-2 bg-muted border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]" />
+                                                                <button onClick={handleEditSave} className="p-1.5 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90"><Check className="w-4 h-4" /></button>
+                                                                <button onClick={() => { setEditingMessage(null); setEditText('') }} className="p-1.5 bg-muted rounded-sm hover:bg-muted/80"><X className="w-4 h-4" /></button>
                                                             </div>
-                                                        </div>
+                                                        ) : (
+                                                            <div className={`px-3 py-2 rounded-sm text-sm ${own ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'}`}>
+                                                                {msg.attachments && msg.attachments.length > 0 && (
+                                                                    <div className="space-y-2 mb-1">
+                                                                        {msg.attachments.map((att, attIdx) => (
+                                                                            att.type?.startsWith('image/') ? (
+                                                                                <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
+                                                                                    <img src={att.url} alt={att.name} className="max-w-[240px] max-h-[200px] rounded-sm object-cover cursor-pointer hover:opacity-90 transition-opacity" />
+                                                                                </a>
+                                                                            ) : (
+                                                                                <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer"
+                                                                                    className={`flex items-center gap-2 p-2 rounded-sm transition-colors ${own ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20' : 'bg-muted/50 hover:bg-muted'}`}>
+                                                                                    {getFileIcon(att.type)}
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <p className="text-xs font-medium truncate">{att.name}</p>
+                                                                                        <p className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>{formatFileSize(att.size)}</p>
+                                                                                    </div>
+                                                                                </a>
+                                                                            )
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {msg.message && <p className="whitespace-pre-wrap break-words">{msg.message}</p>}
+                                                                <div className={`flex items-center gap-1 mt-1 ${own ? 'justify-end' : ''}`}>
+                                                                    <span className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                                                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                    {msg.isEdited && (
+                                                                        <span className={`text-[10px] ${own ? 'text-primary-foreground/50' : 'text-muted-foreground/60'}`}>(edited)</span>
+                                                                    )}
+                                                                    {status === 'read' && <CheckCheck className="w-3.5 h-3.5 text-sky-400" />}
+                                                                    {status === 'delivered' && <CheckCheck className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />}
+                                                                    {status === 'sent' && <Check className={`w-3.5 h-3.5 ${own ? 'text-primary-foreground/50' : 'text-muted-foreground'}`} />}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -502,8 +620,7 @@ export function ChatPage() {
                                     })
                                 )}
 
-                                {/* Typing indicator */}
-                                {typingUsers.length > 0 && (
+                                {typingUserNames.length > 0 && (
                                     <div className="flex items-center gap-2 px-2">
                                         <div className="flex items-center gap-1 bg-card border border-border rounded-sm px-3 py-2">
                                             <div className="flex gap-0.5">
@@ -512,16 +629,14 @@ export function ChatPage() {
                                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
                                             </div>
                                             <span className="text-xs text-muted-foreground ml-1">
-                                                {typingUsers.join(', ')} typing...
+                                                {typingUserNames.join(', ')} {typingUserNames.length === 1 ? 'is' : 'are'} typing...
                                             </span>
                                         </div>
                                     </div>
                                 )}
-
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* Attached files preview */}
                             {attachedFiles.length > 0 && (
                                 <div className="px-3 pt-2 border-t border-border bg-card">
                                     <div className="flex flex-wrap gap-2">
@@ -530,12 +645,7 @@ export function ChatPage() {
                                                 {getFileIcon(file.type)}
                                                 <span className="truncate max-w-[120px] text-xs">{file.name}</span>
                                                 <span className="text-[10px] text-muted-foreground">{formatFileSize(file.size)}</span>
-                                                <button
-                                                    onClick={() => removeAttachedFile(idx)}
-                                                    className="p-0.5 hover:bg-destructive/20 rounded-sm transition-colors"
-                                                >
-                                                    <X className="w-3 h-3 text-destructive" />
-                                                </button>
+                                                <button onClick={() => removeAttachedFile(idx)} className="p-0.5 hover:bg-destructive/20 rounded-sm"><X className="w-3 h-3 text-destructive" /></button>
                                             </div>
                                         ))}
                                     </div>
@@ -544,41 +654,18 @@ export function ChatPage() {
 
                             <form onSubmit={handleSend} className="p-3 border-t border-border bg-card flex-shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="file"
-                                        ref={fileInputRef}
-                                        onChange={e => handleFileSelect(e.target.files)}
-                                        className="hidden"
-                                        multiple
-                                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="p-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-sm transition-colors"
-                                        title="Attach files"
-                                    >
+                                    <input type="file" ref={fileInputRef} onChange={e => handleFileSelect(e.target.files)} className="hidden" multiple
+                                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" />
+                                    <button type="button" onClick={() => fileInputRef.current?.click()}
+                                        className="p-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-sm transition-colors" title="Attach files">
                                         <Paperclip className="w-5 h-5" />
                                     </button>
-                                    <input
-                                        value={newMessage}
-                                        onChange={e => { setNewMessage(e.target.value); handleTyping() }}
+                                    <input value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping() }}
                                         placeholder="Type a message..."
-                                        className="flex-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                        disabled={sending}
-                                    />
-                                    <button
-                                        type="submit"
-                                        disabled={(!newMessage.trim() && attachedFiles.length === 0) || sending}
-                                        className="p-2.5 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
-                                    >
-                                        {uploadingFiles ? (
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                        ) : sending ? (
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                        ) : (
-                                            <Send className="w-5 h-5" />
-                                        )}
+                                        className="flex-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" disabled={sending} />
+                                    <button type="submit" disabled={(!newMessage.trim() && attachedFiles.length === 0) || sending}
+                                        className="p-2.5 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 transition-colors disabled:opacity-50">
+                                        {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                                     </button>
                                 </div>
                             </form>
@@ -592,6 +679,30 @@ export function ChatPage() {
                     )}
                 </div>
             </div>
+
+            {/* Context Menu */}
+            {contextMenu && (
+                <div className="fixed z-[100] bg-card border border-border rounded-sm shadow-lg py-1 min-w-[160px] animate-fade-in"
+                    style={{ left: Math.min(contextMenu.x, window.innerWidth - 180), top: Math.min(contextMenu.y, window.innerHeight - 200) }}
+                    onClick={e => e.stopPropagation()}>
+                    <button onClick={() => handleCopyMessage(contextMenu.message)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                        <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    {isOwnMessage(contextMenu.message) && (
+                        <>
+                            <button onClick={() => handleEditStart(contextMenu.message)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                                <Edit2 className="w-4 h-4" /> Edit
+                            </button>
+                            <button onClick={() => handleDeleteMessage(contextMenu.message)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
+                                <Trash2 className="w-4 h-4" /> Delete
+                            </button>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

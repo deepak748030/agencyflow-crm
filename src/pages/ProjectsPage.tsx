@@ -28,11 +28,13 @@ export function ProjectsPage() {
     const [showCreate, setShowCreate] = useState(false)
     const [clients, setClients] = useState<User[]>([])
     const [managers, setManagers] = useState<User[]>([])
+    const [developers, setDevelopers] = useState<User[]>([])
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState('')
 
     const [form, setForm] = useState({
         name: '', description: '', clientId: '', managerId: '',
+        developerIds: [] as string[],
         budget: 0, deadline: '', priority: 'medium' as string,
     })
 
@@ -53,12 +55,14 @@ export function ProjectsPage() {
     const openCreateModal = async () => {
         setShowCreate(true)
         try {
-            const [clientsRes, managersRes] = await Promise.all([
+            const [clientsRes, managersRes, devsRes] = await Promise.all([
                 getUsers({ role: 'client', limit: 100 }),
                 getUsers({ role: 'manager', limit: 100 }),
+                getUsers({ role: 'developer', limit: 100 }),
             ])
             if (clientsRes.success) setClients(clientsRes.response.users)
             if (managersRes.success) setManagers(managersRes.response.users)
+            if (devsRes.success) setDevelopers(devsRes.response.users)
         } catch { /* ignore */ }
     }
 
@@ -71,10 +75,11 @@ export function ProjectsPage() {
                 ...form,
                 budget: { amount: form.budget, currency: 'INR', paid: 0, pending: form.budget },
                 managerId: form.managerId || undefined,
+                developerIds: form.developerIds.length > 0 ? form.developerIds : [],
             })
             if (res.success) {
                 setShowCreate(false)
-                setForm({ name: '', description: '', clientId: '', managerId: '', budget: 0, deadline: '', priority: 'medium' })
+                setForm({ name: '', description: '', clientId: '', managerId: '', developerIds: [], budget: 0, deadline: '', priority: 'medium' })
                 fetchProjects()
             }
         } catch (err: any) {
@@ -214,6 +219,28 @@ export function ProjectsPage() {
                                         className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                                         <option value="">Select manager</option>
                                         {managers.map(m => <option key={m._id} value={m._id}>{m.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-foreground">Developers</label>
+                                <div className="mt-1 space-y-2">
+                                    <div className="flex flex-wrap gap-2">
+                                        {form.developerIds.map(devId => {
+                                            const dev = developers.find(d => d._id === devId)
+                                            return dev ? (
+                                                <span key={devId} className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-xs rounded-sm">
+                                                    {dev.name}
+                                                    <button type="button" onClick={() => setForm({ ...form, developerIds: form.developerIds.filter(id => id !== devId) })}
+                                                        className="hover:text-destructive"><X className="w-3 h-3" /></button>
+                                                </span>
+                                            ) : null
+                                        })}
+                                    </div>
+                                    <select value="" onChange={e => { if (e.target.value && !form.developerIds.includes(e.target.value)) setForm({ ...form, developerIds: [...form.developerIds, e.target.value] }) }}
+                                        className="w-full px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        <option value="">Add developer...</option>
+                                        {developers.filter(d => !form.developerIds.includes(d._id)).map(d => <option key={d._id} value={d._id}>{d.name} ({d.email})</option>)}
                                     </select>
                                 </div>
                             </div>
