@@ -10,6 +10,7 @@ import { UsersPage } from './pages/UsersPage'
 import { TasksPage } from './pages/TasksPage'
 import { MilestonesPage } from './pages/MilestonesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ActivityLogsPage } from './pages/ActivityLogsPage'
 
 function App() {
     return (
@@ -31,6 +32,7 @@ function App() {
                         <Route path="users" element={<UsersPage />} />
                         <Route path="tasks" element={<TasksPage />} />
                         <Route path="milestones" element={<MilestonesPage />} />
+                        <Route path="activity" element={<ActivityLogsPage />} />
                         <Route path="settings" element={<SettingsPage />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />

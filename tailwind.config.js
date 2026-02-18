@@ -55,9 +55,9 @@ export default {
                 sans: ['Inter', 'system-ui', 'sans-serif'],
             },
             borderRadius: {
-                lg: 'var(--radius)',
-                md: 'calc(var(--radius) - 2px)',
-                sm: 'calc(var(--radius) - 4px)',
+                lg: '0.25rem',
+                md: '0.1875rem',
+                sm: '0.125rem',
             },
             fontSize: {
                 'xs': ['0.8125rem', { lineHeight: '1.25rem' }],

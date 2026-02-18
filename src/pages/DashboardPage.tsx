@@ -19,13 +19,13 @@ interface StatCardProps {
 
 function StatCardSkeleton() {
     return (
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="bg-card border border-border rounded-sm p-5">
             <div className="flex items-start justify-between">
                 <div className="space-y-3 flex-1">
-                    <div className="h-3 w-20 skeleton rounded" />
-                    <div className="h-7 w-16 skeleton rounded" />
+                    <div className="h-3 w-20 skeleton rounded-sm" />
+                    <div className="h-7 w-16 skeleton rounded-sm" />
                 </div>
-                <div className="h-10 w-10 skeleton rounded-lg" />
+                <div className="h-10 w-10 skeleton rounded-sm" />
             </div>
         </div>
     )
@@ -36,13 +36,13 @@ function StatCard({ title, value, icon: Icon, color, isLoading }: StatCardProps)
     const displayValue = typeof value === 'number' ? value.toLocaleString('en-IN') : value
 
     return (
-        <div className="bg-card border border-border rounded-xl p-5 transition-all hover:shadow-lg hover:border-primary/30">
+        <div className="bg-card border border-border rounded-sm p-5 transition-all hover:border-primary/30">
             <div className="flex items-start justify-between">
                 <div>
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{title}</p>
                     <p className="text-2xl font-bold text-foreground mt-1">{displayValue}</p>
                 </div>
-                <div className={cn('p-2.5 rounded-lg', color)}>
+                <div className={cn('p-2.5 rounded-sm', color)}>
                     <Icon className="w-5 h-5" />
                 </div>
             </div>
@@ -52,9 +52,9 @@ function StatCard({ title, value, icon: Icon, color, isLoading }: StatCardProps)
 
 function ChartSkeleton({ height = 300 }: { height?: number }) {
     return (
-        <div className="bg-card border border-border rounded-xl p-5">
-            <div className="h-4 w-32 skeleton rounded mb-4" />
-            <div className="skeleton rounded" style={{ height: `${height}px` }} />
+        <div className="bg-card border border-border rounded-sm p-5">
+            <div className="h-4 w-32 skeleton rounded-sm mb-4" />
+            <div className="skeleton rounded-sm" style={{ height: `${height}px` }} />
         </div>
     )
 }
@@ -69,7 +69,7 @@ const STATUS_COLORS: Record<string, string> = {
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
         return (
-            <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
+            <div className="bg-card border border-border rounded-sm p-3">
                 <p className="text-sm text-muted-foreground mb-1">{label}</p>
                 {payload.map((entry: any, i: number) => (
                     <p key={i} className="text-sm font-medium" style={{ color: entry.color }}>
@@ -128,27 +128,25 @@ export function DashboardPage() {
                     <p className="text-muted-foreground text-sm mt-0.5">AgencyFlow CRM Overview</p>
                 </div>
                 <button onClick={fetchAnalytics} disabled={isLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 transition-colors">
                     <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} /> Refresh
                 </button>
             </div>
 
             {error && (
-                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">{error}</div>
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive text-sm">{error}</div>
             )}
 
-            {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {stats.map((stat) => <StatCard key={stat.title} {...stat} isLoading={isLoading} />)}
             </div>
 
-            {/* Role breakdown */}
             {analytics?.usersByRole && (
                 <div>
                     <h2 className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Team Overview</h2>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {(['admin', 'manager', 'developer', 'client'] as const).map(role => (
-                            <div key={role} className="bg-card border border-border rounded-lg p-3">
+                            <div key={role} className="bg-card border border-border rounded-sm p-3">
                                 <p className="text-xs text-muted-foreground capitalize">{role}s</p>
                                 <p className="text-lg font-bold text-foreground">{analytics.usersByRole[role] || 0}</p>
                             </div>
@@ -157,10 +155,9 @@ export function DashboardPage() {
                 </div>
             )}
 
-            {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {isLoading ? <ChartSkeleton /> : (
-                    <div className="bg-card border border-border rounded-xl p-5">
+                    <div className="bg-card border border-border rounded-sm p-5">
                         <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4">Monthly Revenue</h3>
                         {revenueData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={280}>
@@ -169,7 +166,7 @@ export function DashboardPage() {
                                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                                     <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                                     <Tooltip content={<CustomTooltip />} />
-                                    <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
@@ -184,7 +181,7 @@ export function DashboardPage() {
                 )}
 
                 {isLoading ? <ChartSkeleton /> : (
-                    <div className="bg-card border border-border rounded-xl p-5">
+                    <div className="bg-card border border-border rounded-sm p-5">
                         <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4">Projects by Status</h3>
                         {pieData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={280}>
@@ -210,8 +207,7 @@ export function DashboardPage() {
                 )}
             </div>
 
-            {/* Recent Activity */}
-            <div className="bg-card border border-border rounded-xl p-5">
+            <div className="bg-card border border-border rounded-sm p-5">
                 <h3 className="text-sm sm:text-base font-semibold text-foreground mb-4 flex items-center gap-2">
                     <Activity className="w-4 h-4" /> Recent Activity
                 </h3>
@@ -219,7 +215,7 @@ export function DashboardPage() {
                     <div className="space-y-3">
                         {analytics.recentActivity.map((activity: any, i: number) => (
                             <div key={i} className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
-                                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                                <div className="w-8 h-8 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
                                     <span className="text-xs font-medium">{activity.userId?.name?.charAt(0) || '?'}</span>
                                 </div>
                                 <div className="flex-1 min-w-0">

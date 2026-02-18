@@ -50,14 +50,14 @@ export function LoginPage() {
             <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-primary/90 via-primary/70 to-background" />
                 <div className="absolute inset-0 opacity-10">
-                    <div className="absolute top-20 left-20 w-72 h-72 rounded-full border border-foreground/20" />
-                    <div className="absolute bottom-40 right-10 w-96 h-96 rounded-full border border-foreground/10" />
-                    <div className="absolute top-1/2 left-1/3 w-48 h-48 rounded-full border border-foreground/15" />
+                    <div className="absolute top-20 left-20 w-72 h-72 rounded-sm border border-foreground/20" />
+                    <div className="absolute bottom-40 right-10 w-96 h-96 rounded-sm border border-foreground/10" />
+                    <div className="absolute top-1/2 left-1/3 w-48 h-48 rounded-sm border border-foreground/15" />
                 </div>
 
                 <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
                     <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-white/20 backdrop-blur-sm rounded-2xl">
+                        <div className="p-2.5 bg-white/20 backdrop-blur-sm rounded-sm">
                             <Zap className="w-8 h-8" />
                         </div>
                         <div>
@@ -81,7 +81,7 @@ export function LoginPage() {
                                 'WhatsApp notifications & payment tracking',
                             ].map((feature, index) => (
                                 <div key={index} className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-accent" />
+                                    <div className="w-2 h-2 bg-accent" />
                                     <span className="text-white/90">{feature}</span>
                                 </div>
                             ))}
@@ -98,7 +98,7 @@ export function LoginPage() {
             <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
                 <div className="w-full max-w-md animate-fade-in">
                     <div className="lg:hidden text-center mb-8">
-                        <div className="inline-flex items-center justify-center p-3 bg-primary rounded-2xl mb-4">
+                        <div className="inline-flex items-center justify-center p-3 bg-primary rounded-sm mb-4">
                             <Zap className="w-8 h-8 text-primary-foreground" />
                         </div>
                         <h1 className="text-2xl font-bold text-primary">AgencyFlow</h1>
@@ -112,13 +112,13 @@ export function LoginPage() {
 
                     <form onSubmit={handleSubmit} className="space-y-5">
                         {error && (
-                            <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive">
+                            <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive">
                                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                                 <span className="text-sm">{error}</span>
                             </div>
                         )}
                         {setupMessage && (
-                            <div className="p-4 bg-success/10 border border-success/20 rounded-xl text-success text-sm">
+                            <div className="p-4 bg-success/10 border border-success/20 rounded-sm text-success text-sm">
                                 {setupMessage}
                             </div>
                         )}
@@ -129,7 +129,7 @@ export function LoginPage() {
                                 id="email" type="email" value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 placeholder="admin@agencyflow.com"
-                                className="w-full px-4 py-3.5 bg-muted/50 border border-input rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-muted-foreground/60"
+                                className="w-full px-4 py-3.5 bg-muted/50 border border-input rounded-sm text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-muted-foreground/60"
                                 required
                             />
                         </div>
@@ -141,7 +141,7 @@ export function LoginPage() {
                                     id="password" type={showPassword ? 'text' : 'password'}
                                     value={password} onChange={(e) => setPassword(e.target.value)}
                                     placeholder="Enter your password"
-                                    className="w-full px-4 py-3.5 bg-muted/50 border border-input rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all pr-12 placeholder:text-muted-foreground/60"
+                                    className="w-full px-4 py-3.5 bg-muted/50 border border-input rounded-sm text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all pr-12 placeholder:text-muted-foreground/60"
                                     required
                                 />
                                 <button type="button" onClick={() => setShowPassword(!showPassword)}
@@ -152,7 +152,7 @@ export function LoginPage() {
                         </div>
 
                         <button type="submit" disabled={isLoading}
-                            className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-base">
+                            className="w-full py-4 bg-primary text-primary-foreground rounded-sm font-semibold hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-base">
                             {isLoading ? (
                                 <><Loader2 className="w-5 h-5 animate-spin" /> Signing in...</>
                             ) : (
@@ -164,7 +164,7 @@ export function LoginPage() {
                     <div className="mt-8 pt-8 border-t border-border">
                         <p className="text-sm text-muted-foreground text-center mb-4">First time? Create default admin account</p>
                         <button onClick={handleSetup} disabled={isLoading}
-                            className="w-full py-3.5 bg-muted text-foreground rounded-xl font-medium hover:bg-muted/80 disabled:opacity-50 transition-all border border-border">
+                            className="w-full py-3.5 bg-muted text-foreground rounded-sm font-medium hover:bg-muted/80 disabled:opacity-50 transition-all border border-border">
                             Setup Default Admin
                         </button>
                     </div>

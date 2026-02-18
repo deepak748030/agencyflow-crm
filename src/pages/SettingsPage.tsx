@@ -57,88 +57,87 @@ export function SettingsPage() {
                 <p className="text-muted-foreground text-sm">Manage your account settings</p>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
+            <div className="flex gap-1 bg-muted p-1 rounded-sm w-fit">
                 <button onClick={() => { setActiveTab('profile'); setError(''); setSuccess('') }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'profile' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                    className={`flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium transition-colors ${activeTab === 'profile' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
                     <User className="w-4 h-4" /> Profile
                 </button>
                 <button onClick={() => { setActiveTab('password'); setError(''); setSuccess('') }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'password' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                    className={`flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium transition-colors ${activeTab === 'password' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
                     <Lock className="w-4 h-4" /> Password
                 </button>
             </div>
 
             {error && (
-                <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+                <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive text-sm">
                     <AlertCircle className="w-4 h-4" /> {error}
                 </div>
             )}
             {success && (
-                <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-lg text-success text-sm">
+                <div className="flex items-center gap-2 p-3 bg-success/10 border border-success/20 rounded-sm text-success text-sm">
                     <CheckCircle className="w-4 h-4" /> {success}
                 </div>
             )}
 
             {activeTab === 'profile' ? (
-                <form onSubmit={handleProfileUpdate} className="bg-card border border-border rounded-xl p-6 space-y-4">
+                <form onSubmit={handleProfileUpdate} className="bg-card border border-border rounded-sm p-6 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-sm font-medium text-foreground">Name</label>
                             <input value={name} onChange={e => setName(e.target.value)}
-                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                         </div>
                         <div>
                             <label className="text-sm font-medium text-foreground">Email</label>
                             <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-sm font-medium text-foreground">Phone</label>
                             <input value={phone} onChange={e => setPhone(e.target.value)}
-                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                         </div>
                         <div>
                             <label className="text-sm font-medium text-foreground">Company</label>
                             <input value={company} onChange={e => setCompany(e.target.value)}
-                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                         </div>
                     </div>
                     <div>
                         <label className="text-sm font-medium text-foreground">Designation</label>
                         <input value={designation} onChange={e => setDesignation(e.target.value)}
-                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                     </div>
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                         <span>Role: <span className="text-foreground font-medium capitalize">{user?.role}</span></span>
                     </div>
                     <button type="submit" disabled={saving}
-                        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
+                        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
                         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Save Changes
                     </button>
                 </form>
             ) : (
-                <form onSubmit={handlePasswordUpdate} className="bg-card border border-border rounded-xl p-6 space-y-4">
+                <form onSubmit={handlePasswordUpdate} className="bg-card border border-border rounded-sm p-6 space-y-4">
                     <div>
                         <label className="text-sm font-medium text-foreground">Current Password</label>
                         <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required
-                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                     </div>
                     <div>
                         <label className="text-sm font-medium text-foreground">New Password</label>
                         <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8}
-                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                             placeholder="Min 8 characters" />
                     </div>
                     <div>
                         <label className="text-sm font-medium text-foreground">Confirm New Password</label>
                         <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
-                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                            className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                     </div>
                     <button type="submit" disabled={saving}
-                        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
+                        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
                         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Update Password
                     </button>
                 </form>

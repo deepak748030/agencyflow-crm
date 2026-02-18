@@ -251,4 +251,24 @@ export const deleteTask = async (id: string) => {
     return response.data
 }
 
+// Activity Log APIs
+export const getActivityLogs = async (params?: { search?: string; resource?: string; action?: string; userId?: string; page?: number; limit?: number }) => {
+    const response = await api.get('/activity', { params })
+    return response.data as {
+        success: boolean
+        response: { logs: any[]; pagination: { page: number; limit: number; total: number; pages: number } }
+    }
+}
+
+// Milestone management
+export const updateMilestone = async (id: string, data: any) => {
+    const response = await api.put(`/milestones/${id}`, data)
+    return response.data
+}
+
+export const deleteMilestone = async (id: string) => {
+    const response = await api.delete(`/milestones/${id}`)
+    return response.data
+}
+
 export default api

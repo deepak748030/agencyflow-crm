@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, Users as UsersIcon, Loader2, X, AlertCircle, Mail, Phone } from 'lucide-react'
+import { Plus, Search, Users as UsersIcon, Loader2, X, AlertCircle, Mail, Phone, Edit2 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { getUsers, createUser, deleteUser, User } from '../lib/api'
+import { getUsers, createUser, updateUser, deleteUser, User } from '../lib/api'
+import { ConfirmModal } from '../components/ConfirmModal'
 
 const ROLE_STYLES: Record<string, string> = {
     admin: 'bg-destructive/10 text-destructive',
@@ -19,6 +20,11 @@ export function UsersPage() {
     const [showCreate, setShowCreate] = useState(false)
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState('')
+    const [deactivateId, setDeactivateId] = useState<string | null>(null)
+    const [editUser, setEditUser] = useState<User | null>(null)
+    const [editSaving, setEditSaving] = useState(false)
+    const [editError, setEditError] = useState('')
+    const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', company: '', designation: '', role: '' })
 
     const [form, setForm] = useState({
         name: '', email: '', password: '', role: 'developer',
@@ -41,8 +47,7 @@ export function UsersPage() {
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault()
-        setCreating(true)
-        setCreateError('')
+        setCreating(true); setCreateError('')
         try {
             const res = await createUser(form)
             if (res.success) {
@@ -52,17 +57,32 @@ export function UsersPage() {
             }
         } catch (err: any) {
             setCreateError(err.response?.data?.message || 'Failed to create user')
-        } finally {
-            setCreating(false)
-        }
+        } finally { setCreating(false) }
     }
 
-    const handleDeactivate = async (userId: string) => {
-        if (!confirm('Deactivate this user?')) return
+    const handleDeactivate = async () => {
+        if (!deactivateId) return
+        try { await deleteUser(deactivateId); fetchUsers() } catch { }
+        setDeactivateId(null)
+    }
+
+    const openEdit = (user: User) => {
+        setEditUser(user)
+        setEditForm({ name: user.name, email: user.email, phone: user.phone || '', company: user.company || '', designation: user.designation || '', role: user.role })
+        setEditError('')
+    }
+
+    const handleEdit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!editUser) return
+        setEditSaving(true); setEditError('')
         try {
-            await deleteUser(userId)
+            await updateUser(editUser._id, editForm as any)
+            setEditUser(null)
             fetchUsers()
-        } catch { /* ignore */ }
+        } catch (err: any) {
+            setEditError(err.response?.data?.message || 'Failed to update user')
+        } finally { setEditSaving(false) }
     }
 
     return (
@@ -73,7 +93,7 @@ export function UsersPage() {
                     <p className="text-muted-foreground text-sm">Manage team members and clients</p>
                 </div>
                 <button onClick={() => setShowCreate(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium">
+                    className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 transition-colors font-medium">
                     <Plus className="w-4 h-4" /> Add User
                 </button>
             </div>
@@ -82,10 +102,10 @@ export function UsersPage() {
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input value={search} onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search users..." className="w-full pl-10 pr-4 py-2.5 bg-card border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                        placeholder="Search users..." className="w-full pl-10 pr-4 py-2.5 bg-card border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                 </div>
                 <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
-                    className="px-4 py-2.5 bg-card border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                    className="px-4 py-2.5 bg-card border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                     <option value="">All Roles</option>
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
@@ -94,11 +114,10 @@ export function UsersPage() {
                 </select>
             </div>
 
-            {error && <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">{error}</div>}
+            {error && <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive text-sm">{error}</div>}
 
-            {/* Users Table */}
             {isLoading ? (
-                <div className="bg-card border border-border rounded-xl p-8 text-center">
+                <div className="bg-card border border-border rounded-sm p-8 text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                 </div>
             ) : users.length === 0 ? (
@@ -108,7 +127,7 @@ export function UsersPage() {
                     <p className="text-muted-foreground text-sm">Add team members to get started</p>
                 </div>
             ) : (
-                <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="bg-card border border-border rounded-sm overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead>
@@ -126,8 +145,8 @@ export function UsersPage() {
                                     <tr key={user._id} className="hover:bg-muted/30 transition-colors">
                                         <td className="py-3 px-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center">
-                                                    {user.avatar ? <img src={user.avatar} className="w-full h-full rounded-full object-cover" /> :
+                                                <div className="w-9 h-9 rounded-sm bg-muted flex items-center justify-center">
+                                                    {user.avatar ? <img src={user.avatar} className="w-full h-full rounded-sm object-cover" /> :
                                                         <span className="text-sm font-medium">{user.name.charAt(0).toUpperCase()}</span>}
                                                 </div>
                                                 <div>
@@ -137,7 +156,7 @@ export function UsersPage() {
                                             </div>
                                         </td>
                                         <td className="py-3 px-4">
-                                            <span className={cn('text-xs px-2 py-1 rounded-full font-medium capitalize', ROLE_STYLES[user.role])}>{user.role}</span>
+                                            <span className={cn('text-xs px-2 py-1 rounded-sm font-medium capitalize', ROLE_STYLES[user.role])}>{user.role}</span>
                                         </td>
                                         <td className="py-3 px-4 hidden md:table-cell">
                                             <div className="space-y-0.5">
@@ -150,10 +169,16 @@ export function UsersPage() {
                                             {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString('en-IN') : 'Never'}
                                         </td>
                                         <td className="py-3 px-4 text-right">
-                                            <button onClick={() => handleDeactivate(user._id)}
-                                                className="text-xs text-destructive hover:text-destructive/80 transition-colors">
-                                                Deactivate
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button onClick={() => openEdit(user)}
+                                                    className="text-xs text-primary hover:text-primary/80 transition-colors flex items-center gap-1">
+                                                    <Edit2 className="w-3 h-3" /> Edit
+                                                </button>
+                                                <button onClick={() => setDeactivateId(user._id)}
+                                                    className="text-xs text-destructive hover:text-destructive/80 transition-colors">
+                                                    Deactivate
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -165,14 +190,14 @@ export function UsersPage() {
 
             {/* Create Modal */}
             {showCreate && (
-                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-                    <div className="bg-card border border-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setShowCreate(false)}>
+                    <div className="bg-card border border-border rounded-t-sm sm:rounded-sm w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-6 animate-slide-up sm:animate-fade-in" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-lg font-bold text-foreground">Add New User</h2>
-                            <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-muted rounded-lg"><X className="w-5 h-5" /></button>
+                            <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-muted rounded-sm"><X className="w-5 h-5" /></button>
                         </div>
                         {createError && (
-                            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm mb-4">
+                            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive text-sm mb-4">
                                 <AlertCircle className="w-4 h-4" /> {createError}
                             </div>
                         )}
@@ -181,12 +206,12 @@ export function UsersPage() {
                                 <div>
                                     <label className="text-sm font-medium text-foreground">Name *</label>
                                     <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required
-                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium text-foreground">Role *</label>
                                     <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
-                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                                         <option value="admin">Admin</option>
                                         <option value="manager">Manager</option>
                                         <option value="developer">Developer</option>
@@ -197,36 +222,36 @@ export function UsersPage() {
                             <div>
                                 <label className="text-sm font-medium text-foreground">Email *</label>
                                 <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required
-                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-foreground">Password *</label>
                                 <input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={8}
-                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                     placeholder="Min 8 characters" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-sm font-medium text-foreground">Phone</label>
                                     <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}
-                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium text-foreground">Company</label>
                                     <input value={form.company} onChange={e => setForm({ ...form, company: e.target.value })}
-                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-foreground">Designation</label>
                                 <input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })}
-                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
                             </div>
                             <div className="flex gap-3 pt-2">
                                 <button type="button" onClick={() => setShowCreate(false)}
-                                    className="flex-1 py-2.5 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors border border-border">Cancel</button>
+                                    className="flex-1 py-2.5 bg-muted text-foreground rounded-sm font-medium hover:bg-muted/80 transition-colors border border-border">Cancel</button>
                                 <button type="submit" disabled={creating}
-                                    className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                                    className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
                                     {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create User
                                 </button>
                             </div>
@@ -234,6 +259,82 @@ export function UsersPage() {
                     </div>
                 </div>
             )}
+
+            {/* Edit Modal */}
+            {editUser && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setEditUser(null)}>
+                    <div className="bg-card border border-border rounded-t-sm sm:rounded-sm w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-6 animate-slide-up sm:animate-fade-in" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-lg font-bold text-foreground">Edit User</h2>
+                            <button onClick={() => setEditUser(null)} className="p-1 hover:bg-muted rounded-sm"><X className="w-5 h-5" /></button>
+                        </div>
+                        {editError && (
+                            <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-destructive text-sm mb-4">
+                                <AlertCircle className="w-4 h-4" /> {editError}
+                            </div>
+                        )}
+                        <form onSubmit={handleEdit} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-sm font-medium text-foreground">Name</label>
+                                    <input value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-foreground">Role</label>
+                                    <select value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        <option value="admin">Admin</option>
+                                        <option value="manager">Manager</option>
+                                        <option value="developer">Developer</option>
+                                        <option value="client">Client</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-foreground">Email</label>
+                                <input type="email" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })}
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-sm font-medium text-foreground">Phone</label>
+                                    <input value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-foreground">Company</label>
+                                    <input value={editForm.company} onChange={e => setEditForm({ ...editForm, company: e.target.value })}
+                                        className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-foreground">Designation</label>
+                                <input value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })}
+                                    className="w-full mt-1 px-4 py-2.5 bg-muted/50 border border-input rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => setEditUser(null)}
+                                    className="flex-1 py-2.5 bg-muted text-foreground rounded-sm font-medium hover:bg-muted/80 transition-colors border border-border">Cancel</button>
+                                <button type="submit" disabled={editSaving}
+                                    className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-sm font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                                    {editSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Edit2 className="w-4 h-4" />} Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            <ConfirmModal
+                open={!!deactivateId}
+                title="Deactivate User"
+                message="Are you sure you want to deactivate this user? They will lose access to the platform."
+                confirmLabel="Deactivate"
+                variant="destructive"
+                onConfirm={handleDeactivate}
+                onCancel={() => setDeactivateId(null)}
+            />
         </div>
     )
 }
