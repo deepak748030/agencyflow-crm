@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Calendar, DollarSign, AlertCircle, CheckCircle2, ListTodo, Plus, X, Edit2, Save } from 'lucide-react'
+import { ArrowLeft, Loader2, Calendar, DollarSign, AlertCircle, CheckCircle2, ListTodo, Plus, X, Edit2, Save, MessageCircle } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { getProject, getMilestones, getTasks, createTask, createMilestone, updateTaskStatus, updateProject, updateProjectStatus, getUsers, Project, Milestone, Task, User } from '../lib/api'
 import { ConfirmModal } from '../components/ConfirmModal'
@@ -158,6 +158,10 @@ export function ProjectDetailPage() {
                     <p className="text-muted-foreground text-sm">{project.description || 'No description'}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button onClick={() => navigate(`/chat?projectId=${id}`)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-sm text-sm font-medium hover:bg-primary/90 transition-colors">
+                        <MessageCircle className="w-3.5 h-3.5" /> Open Chat
+                    </button>
                     <button onClick={() => setShowEditProject(true)}
                         className="flex items-center gap-1.5 px-3 py-2 bg-muted text-foreground rounded-sm text-sm font-medium hover:bg-muted/80 transition-colors border border-border">
                         <Edit2 className="w-3.5 h-3.5" /> Edit

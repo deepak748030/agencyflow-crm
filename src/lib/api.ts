@@ -322,6 +322,16 @@ export const sendMessage = async (conversationId: string, message: string, type 
     return response.data as { success: boolean; response: ChatMessage }
 }
 
+export const getUnreadCount = async () => {
+    const response = await api.get('/chat/unread-count')
+    return response.data as { success: boolean; response: { total: number; perConversation: Record<string, number> } }
+}
+
+export const markConversationRead = async (conversationId: string) => {
+    const response = await api.post(`/chat/conversations/${conversationId}/read`)
+    return response.data
+}
+
 export const editMessage = async (messageId: string, message: string) => {
     const response = await api.put(`/chat/messages/${messageId}`, { message })
     return response.data

@@ -32,8 +32,8 @@ function App() {
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="users" element={<UsersPage />} />
                         <Route path="tasks" element={<TasksPage />} />
-                        <Route path="chat" element={<ChatPage />} />
                         <Route path="milestones" element={<MilestonesPage />} />
+                        <Route path="chat" element={<ChatPage />} />
                         <Route path="activity" element={<ActivityLogsPage />} />
                         <Route path="settings" element={<SettingsPage />} />
                     </Route>

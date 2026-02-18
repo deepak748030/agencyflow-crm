@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import { MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
-    getConversations, getConversationMessages, sendMessage,
+    getConversations, getConversationMessages, sendMessage, getUnreadCount, markConversationRead,
+    createProjectConversation,
     type Conversation, type ChatMessage
 } from '../lib/api'
 
 export function ChatPage() {
     const { user } = useAuth()
+    const [searchParams] = useSearchParams()
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
     const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -17,21 +20,46 @@ export function ChatPage() {
     const [sending, setSending] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [showMobileChat, setShowMobileChat] = useState(false)
+    const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     useEffect(() => {
         fetchConversations()
+        fetchUnread()
         return () => { if (pollRef.current) clearInterval(pollRef.current) }
     }, [])
+
+    // Auto-open project conversation from query param
+    useEffect(() => {
+        const projectId = searchParams.get('projectId')
+        if (projectId && conversations.length > 0) {
+            const existing = conversations.find(c => {
+                const pid = typeof c.projectId === 'object' ? c.projectId._id : c.projectId
+                return pid === projectId
+            })
+            if (existing) {
+                selectConversation(existing)
+            } else {
+                // Create conversation for this project
+                createProjectConversation(projectId).then(res => {
+                    if (res.success) {
+                        setConversations(prev => [res.response, ...prev])
+                        selectConversation(res.response)
+                    }
+                }).catch(() => { })
+            }
+        }
+    }, [conversations.length, searchParams])
 
     useEffect(() => {
         if (activeConversation) {
             fetchMessages(activeConversation._id)
-            // Poll for new messages every 3 seconds
+            handleMarkRead(activeConversation._id)
             if (pollRef.current) clearInterval(pollRef.current)
             pollRef.current = setInterval(() => {
                 fetchMessages(activeConversation._id, true)
+                fetchUnread()
             }, 3000)
         }
         return () => { if (pollRef.current) clearInterval(pollRef.current) }
@@ -43,6 +71,20 @@ export function ChatPage() {
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+
+    const fetchUnread = async () => {
+        try {
+            const res = await getUnreadCount()
+            if (res.success) setUnreadMap(res.response.perConversation)
+        } catch { }
+    }
+
+    const handleMarkRead = async (convId: string) => {
+        try {
+            await markConversationRead(convId)
+            setUnreadMap(prev => { const n = { ...prev }; delete n[convId]; return n })
+        } catch { }
     }
 
     const fetchConversations = async () => {
@@ -73,7 +115,6 @@ export function ChatPage() {
             if (res.success) {
                 setMessages(prev => [...prev, res.response])
                 setNewMessage('')
-                // Update conversation list
                 setConversations(prev => prev.map(c =>
                     c._id === activeConversation._id
                         ? { ...c, lastMessage: { text: newMessage.trim(), senderId: user as any, sentAt: new Date().toISOString() } }
@@ -88,6 +129,7 @@ export function ChatPage() {
     const selectConversation = (conv: Conversation) => {
         setActiveConversation(conv)
         setShowMobileChat(true)
+        handleMarkRead(conv._id)
     }
 
     const filteredConversations = conversations.filter(c => {
@@ -117,7 +159,11 @@ export function ChatPage() {
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground">Chat</h1>
-                    <p className="text-muted-foreground text-sm">Project group conversations</p>
+                    <p className="text-muted-foreground text-sm">
+                        {user?.role === 'admin' ? (
+                            <span className="flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-primary inline" /> All project conversations</span>
+                        ) : 'Your project conversations'}
+                    </p>
                 </div>
             </div>
 
@@ -152,6 +198,7 @@ export function ChatPage() {
                                 const projectName = typeof conv.projectId === 'object' ? conv.projectId?.name : 'Project'
                                 const isActive = activeConversation?._id === conv._id
                                 const participantCount = conv.participants?.filter(p => p.isActive).length || 0
+                                const unreadCount = unreadMap[conv._id] || 0
 
                                 return (
                                     <button
@@ -160,19 +207,24 @@ export function ChatPage() {
                                         className={`w-full text-left px-4 py-3 border-b border-border transition-colors ${isActive ? 'bg-primary/10 border-l-2 border-l-primary' : 'hover:bg-muted/50'}`}
                                     >
                                         <div className="flex items-start gap-3">
-                                            <div className="w-10 h-10 rounded-sm bg-primary/20 flex items-center justify-center flex-shrink-0">
+                                            <div className="w-10 h-10 rounded-sm bg-primary/20 flex items-center justify-center flex-shrink-0 relative">
                                                 <Hash className="w-5 h-5 text-primary" />
+                                                {unreadCount > 0 && (
+                                                    <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center justify-between">
-                                                    <p className="text-sm font-medium text-foreground truncate">{projectName}</p>
+                                                    <p className={`text-sm truncate ${unreadCount > 0 ? 'font-bold text-foreground' : 'font-medium text-foreground'}`}>{projectName}</p>
                                                     {conv.lastMessage?.sentAt && (
-                                                        <span className="text-xs text-muted-foreground ml-2 flex-shrink-0">
+                                                        <span className={`text-xs ml-2 flex-shrink-0 ${unreadCount > 0 ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>
                                                             {formatTime(conv.lastMessage.sentAt)}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                                <p className={`text-xs truncate mt-0.5 ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                                                     {conv.lastMessage?.text || 'No messages yet'}
                                                 </p>
                                                 <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
@@ -192,7 +244,6 @@ export function ChatPage() {
                 <div className={`flex-1 flex flex-col bg-background ${!showMobileChat ? 'hidden lg:flex' : 'flex'}`}>
                     {activeConversation ? (
                         <>
-                            {/* Chat Header */}
                             <div className="h-14 px-4 flex items-center gap-3 border-b border-border bg-card flex-shrink-0">
                                 <button onClick={() => setShowMobileChat(false)} className="lg:hidden p-1 rounded-sm hover:bg-muted">
                                     <ArrowLeft className="w-5 h-5" />
@@ -210,7 +261,6 @@ export function ChatPage() {
                                 </div>
                             </div>
 
-                            {/* Messages */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                                 {messagesLoading ? (
                                     <div className="flex items-center justify-center h-full">
@@ -279,7 +329,6 @@ export function ChatPage() {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            {/* Message Input */}
                             <form onSubmit={handleSend} className="p-3 border-t border-border bg-card flex-shrink-0">
                                 <div className="flex items-center gap-2">
                                     <input
