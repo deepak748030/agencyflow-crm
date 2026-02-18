@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard, FolderKanban, Users, Target, Settings,
-    Menu, X, LogOut, ChevronLeft, ChevronRight, Zap, ListTodo, Activity,
+    Menu, X, LogOut, ChevronLeft, ChevronRight, Zap, ListTodo, Activity, MessageCircle,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
@@ -14,6 +14,7 @@ const navItems = [
     { to: '/tasks', icon: ListTodo, label: 'Tasks' },
     { to: '/users', icon: Users, label: 'Users' },
     { to: '/milestones', icon: Target, label: 'Milestones' },
+    { to: '/chat', icon: MessageCircle, label: 'Chat' },
     { to: '/activity', icon: Activity, label: 'Activity' },
     { to: '/settings', icon: Settings, label: 'Settings' },
 ]
@@ -25,7 +26,7 @@ export function DashboardLayout() {
     const location = useLocation()
 
     return (
-        <div className="min-h-screen flex bg-background">
+        <div className="h-screen flex bg-background overflow-hidden">
             {mobileMenuOpen && (
                 <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMobileMenuOpen(false)} />
             )}
@@ -101,8 +102,8 @@ export function DashboardLayout() {
                 </div>
             </aside>
 
-            <div className="flex-1 flex flex-col min-h-screen">
-                <header className="h-16 bg-card border-b border-border flex items-center px-4 lg:px-6 sticky top-0 z-30">
+            <div className="flex-1 flex flex-col min-h-0 h-screen">
+                <header className="h-16 bg-card border-b border-border flex items-center px-4 lg:px-6 flex-shrink-0 z-30">
                     <button onClick={() => setMobileMenuOpen(true)} className="p-2 rounded-sm hover:bg-muted transition-colors lg:hidden">
                         <Menu className="w-5 h-5" />
                     </button>
@@ -114,7 +115,7 @@ export function DashboardLayout() {
                         </div>
                     </div>
                 </header>
-                <main className="flex-1 p-4 lg:p-6 overflow-auto">
+                <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
                     <Outlet />
                 </main>
             </div>

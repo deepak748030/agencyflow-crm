@@ -11,6 +11,7 @@ const milestoneRoutes = require('./routes/milestoneRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const activityRoutes = require('./routes/activityRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -50,7 +51,8 @@ app.use('/api/milestones', milestoneRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/activity', activityRoutes);
-
+app.use('/api/chat', chatRoutes);
+app.use('/api/chat', chatRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ success: true, message: 'AgencyFlow CRM API is running', timestamp: new Date().toISOString() });

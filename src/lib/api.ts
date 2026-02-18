@@ -271,4 +271,65 @@ export const deleteMilestone = async (id: string) => {
     return response.data
 }
 
+// Chat Types
+export interface Conversation {
+    _id: string
+    projectId: string | { _id: string; name: string; status: string }
+    type: 'project_group' | 'direct'
+    participants: { userId: User | string; role: string; joinedAt: string; lastReadAt: string; isActive: boolean }[]
+    lastMessage: { text: string; senderId: User | string; sentAt: string } | null
+    createdAt: string
+    updatedAt: string
+}
+
+export interface ChatMessage {
+    _id: string
+    conversationId: string
+    senderId: User | string
+    type: 'text' | 'file' | 'image' | 'system'
+    message: string
+    attachments: { name: string; url: string; type: string; size: number }[]
+    replyTo: string | null
+    isEdited: boolean
+    editedAt: string | null
+    isDeleted: boolean
+    seenBy: { userId: string; seenAt: string }[]
+    createdAt: string
+    updatedAt: string
+}
+
+// Chat APIs
+export const getConversations = async () => {
+    const response = await api.get('/chat/conversations')
+    return response.data as { success: boolean; response: Conversation[] }
+}
+
+export const createProjectConversation = async (projectId: string) => {
+    const response = await api.post(`/chat/conversations/project/${projectId}`)
+    return response.data as { success: boolean; response: Conversation }
+}
+
+export const getConversationMessages = async (conversationId: string, page = 1) => {
+    const response = await api.get(`/chat/conversations/${conversationId}/messages`, { params: { page } })
+    return response.data as {
+        success: boolean
+        response: { messages: ChatMessage[]; pagination: { page: number; limit: number; total: number; pages: number } }
+    }
+}
+
+export const sendMessage = async (conversationId: string, message: string, type = 'text') => {
+    const response = await api.post(`/chat/conversations/${conversationId}/messages`, { message, type })
+    return response.data as { success: boolean; response: ChatMessage }
+}
+
+export const editMessage = async (messageId: string, message: string) => {
+    const response = await api.put(`/chat/messages/${messageId}`, { message })
+    return response.data
+}
+
+export const deleteMessage = async (messageId: string) => {
+    const response = await api.delete(`/chat/messages/${messageId}`)
+    return response.data
+}
+
 export default api

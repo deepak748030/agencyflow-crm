@@ -52,7 +52,7 @@ export default {
                 },
             },
             fontFamily: {
-                sans: ['Inter', 'system-ui', 'sans-serif'],
+                sans: ['DM Sans', 'system-ui', 'sans-serif'],
             },
             borderRadius: {
                 lg: '0.25rem',

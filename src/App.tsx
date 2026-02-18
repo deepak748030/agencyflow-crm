@@ -11,6 +11,7 @@ import { TasksPage } from './pages/TasksPage'
 import { MilestonesPage } from './pages/MilestonesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ActivityLogsPage } from './pages/ActivityLogsPage'
+import { ChatPage } from './pages/ChatPage'
 
 function App() {
     return (
@@ -31,6 +32,7 @@ function App() {
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="users" element={<UsersPage />} />
                         <Route path="tasks" element={<TasksPage />} />
+                        <Route path="chat" element={<ChatPage />} />
                         <Route path="milestones" element={<MilestonesPage />} />
                         <Route path="activity" element={<ActivityLogsPage />} />
                         <Route path="settings" element={<SettingsPage />} />
