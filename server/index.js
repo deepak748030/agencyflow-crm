@@ -20,6 +20,7 @@ const taskRoutes = require('./routes/taskRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -34,6 +35,9 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Webhook routes BEFORE json parsing (needs raw body for signature verification)
+app.use('/api/webhooks', express.json({ limit: '4.5mb' }), require('./middleware/dbMiddleware'), webhookRoutes);
 
 app.use(express.json({ limit: '4.5mb' }));
 app.use(express.urlencoded({ limit: '4.5mb', extended: true }));

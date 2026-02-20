@@ -8,20 +8,14 @@ const milestoneSchema = new mongoose.Schema({
     dueDate: { type: Date, default: null },
     status: {
         type: String,
-        enum: ['pending', 'in_progress', 'submitted', 'client_approved', 'payment_pending', 'paid'],
+        enum: ['pending', 'in_progress', 'completed', 'paid'],
         default: 'pending',
     },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-    approvedAt: { type: Date, default: null },
     paidAt: { type: Date, default: null },
-    paidBy: { type: String, enum: ['razorpay', 'manual', null], default: null },
-    invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', default: null },
-    remindersSent: [{
-        channel: { type: String, enum: ['email', 'whatsapp'] },
-        sentAt: Date,
-        status: String,
-    }],
+    razorpayOrderId: { type: String, default: null },
+    razorpayPaymentId: { type: String, default: null },
+    razorpaySignature: { type: String, default: null },
 }, { timestamps: true });
 
 milestoneSchema.index({ projectId: 1 });
