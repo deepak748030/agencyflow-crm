@@ -75,12 +75,11 @@ export interface Milestone {
     description: string
     amount: number
     dueDate: string | null
-    status: 'pending' | 'in_progress' | 'submitted' | 'client_approved' | 'payment_pending' | 'paid'
+    status: 'pending' | 'in_progress' | 'completed' | 'paid'
     createdBy: User | string
-    approvedBy: User | string | null
-    approvedAt: string | null
     paidAt: string | null
-    paidBy: string | null
+    razorpayOrderId: string | null
+    razorpayPaymentId: string | null
     createdAt: string
 }
 
@@ -198,6 +197,45 @@ export const createMilestone = async (data: { projectId: string; title: string; 
 export const updateMilestoneStatus = async (id: string, status: string) => {
     const response = await api.patch(`/milestones/${id}/status`, { status })
     return response.data
+}
+
+export const createRazorpayOrder = async (milestoneId: string) => {
+    const response = await api.post(`/milestones/${milestoneId}/create-order`)
+    return response.data as { success: boolean; response: { orderId: string; amount: number; currency: string; keyId: string } }
+}
+
+export const verifyRazorpayPayment = async (milestoneId: string, data: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+    const response = await api.post(`/milestones/${milestoneId}/verify-payment`, data)
+    return response.data
+}
+
+export const sendPaymentReminder = async (milestoneId: string) => {
+    const response = await api.post(`/milestones/${milestoneId}/send-reminder`)
+    return response.data
+}
+
+export const downloadMilestoneInvoice = async (milestoneId: string) => {
+    const response = await api.get(`/milestones/${milestoneId}/invoice`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `INV-${milestoneId.slice(-8).toUpperCase()}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+}
+
+export const downloadAllProjectInvoices = async (projectId: string) => {
+    const response = await api.get(`/milestones/project/${projectId}/invoices-all`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `All-Invoices.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
 }
 
 // Task Types

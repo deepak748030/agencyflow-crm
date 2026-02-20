@@ -3,13 +3,16 @@ import { useSearchParams } from 'react-router-dom'
 import {
     MessageCircle, Send, Loader2, ArrowLeft, Users, Search, Hash,
     Paperclip, X, FileText, Image as ImageIcon, File, Check, CheckCheck,
-    Edit2, Trash2, Copy
+    Edit2, Trash2, Copy, ChevronRight, AlertTriangle, ChevronDown, ChevronUp, Download
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { ChatMilestonePanel } from '../components/ChatMilestonePanel'
+import { ErrorModal } from '../components/ErrorModal'
 import {
     getConversations, getConversationMessages, sendMessage, getUnreadCount, markConversationRead,
     createProjectConversation, uploadChatFile, editMessage, deleteMessage,
-    type Conversation, type ChatMessage
+    getMilestones, createRazorpayOrder, verifyRazorpayPayment,
+    type Conversation, type ChatMessage, type Milestone
 } from '../lib/api'
 import {
     connectSocket, disconnectSocket, joinConversation, leaveConversation,
@@ -42,6 +45,12 @@ export function ChatPage() {
     const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null)
     const [editText, setEditText] = useState('')
     const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set())
+    const [showMilestonePanel, setShowMilestonePanel] = useState(false)
+    const [pendingPaymentMilestones, setPendingPaymentMilestones] = useState<Milestone[]>([])
+    const [allMilestones, setAllMilestones] = useState<Milestone[]>([])
+    const [paymentBannerExpanded, setPaymentBannerExpanded] = useState(false)
+    const [payingMilestoneId, setPayingMilestoneId] = useState<string | null>(null)
+    const [errorModal, setErrorModal] = useState<{ title?: string; message: string } | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -196,6 +205,22 @@ export function ChatPage() {
         }
     }, [activeConversation?._id])
 
+    // Fetch pending payment milestones for the active conversation
+    const fetchPendingPayments = useCallback(async () => {
+        if (!activeConversation) { setPendingPaymentMilestones([]); setAllMilestones([]); return }
+        const pid = typeof activeConversation.projectId === 'object' ? activeConversation.projectId._id : activeConversation.projectId
+        if (!pid) return
+        try {
+            const res = await getMilestones(pid)
+            if (res.success) {
+                setAllMilestones(res.response)
+                setPendingPaymentMilestones(res.response.filter((m: Milestone) => m.status === 'completed'))
+            }
+        } catch { }
+    }, [activeConversation?._id])
+
+    useEffect(() => { fetchPendingPayments() }, [fetchPendingPayments])
+
     // Join all conversation rooms for sidebar updates
     useEffect(() => {
         conversations.forEach(c => joinConversation(c._id))
@@ -273,6 +298,15 @@ export function ChatPage() {
     const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
     const handleDrop = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); handleFileSelect(e.dataTransfer.files) }
 
+    const extractErrorMessage = (err: unknown): string => {
+        if (err && typeof err === 'object' && 'response' in err) {
+            const axiosErr = err as any
+            return axiosErr.response?.data?.message || axiosErr.response?.statusText || 'Something went wrong'
+        }
+        if (err instanceof Error) return err.message
+        return 'An unexpected error occurred'
+    }
+
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
         if ((!newMessage.trim() && attachedFiles.length === 0) || !activeConversation || sending) return
@@ -284,15 +318,27 @@ export function ChatPage() {
         try {
             let uploadedAttachments: { name: string; url: string; type: string; size: number }[] = []
             if (attachedFiles.length > 0) {
-                const results = await Promise.all(attachedFiles.map(file => uploadChatFile(file)))
-                uploadedAttachments = results.filter(r => r.success).map(r => ({ name: r.response.name, url: r.response.url, type: r.response.type, size: r.response.size }))
+                const results = await Promise.all(attachedFiles.map(async (file) => {
+                    try {
+                        return await uploadChatFile(file)
+                    } catch (err) {
+                        setErrorModal({ title: 'Upload Failed', message: `Failed to upload "${file.name}": ${extractErrorMessage(err)}` })
+                        return null
+                    }
+                }))
+                uploadedAttachments = results
+                    .filter((r): r is NonNullable<typeof r> => r !== null && r.success)
+                    .map(r => ({ name: r.response.name, url: r.response.url, type: r.response.type, size: r.response.size }))
+
+                if (uploadedAttachments.length === 0 && attachedFiles.length > 0) {
+                    setSending(false)
+                    return
+                }
             }
             const msgType = uploadedAttachments.length > 0 && !newMessage.trim()
                 ? (uploadedAttachments[0].type.startsWith('image/') ? 'image' : 'file') : 'text'
             const res = await sendMessage(activeConversation._id, newMessage.trim(), msgType, uploadedAttachments)
             if (res.success) {
-                // Socket.io will handle adding the message via 'message:new' event
-                // But add it locally too for instant feedback (deduped by _id)
                 setMessages(prev => {
                     if (prev.some(m => m._id === res.response._id)) return prev
                     return [...prev, res.response]
@@ -306,7 +352,9 @@ export function ChatPage() {
                         : c
                 ))
             }
-        } catch (err) { console.error('Failed to send:', err) }
+        } catch (err) {
+            setErrorModal({ title: 'Send Failed', message: extractErrorMessage(err) })
+        }
         finally { setSending(false) }
     }
 
@@ -336,10 +384,9 @@ export function ChatPage() {
         try {
             const res = await editMessage(editingMessage._id, editText.trim())
             if (res.success) {
-                // Socket.io 'message:edited' event will handle this for other users
                 setMessages(prev => prev.map(m => m._id === editingMessage._id ? { ...m, message: editText.trim(), isEdited: true } : m))
             }
-        } catch (err) { console.error('Edit failed:', err) }
+        } catch (err) { setErrorModal({ title: 'Edit Failed', message: extractErrorMessage(err) }) }
         setEditingMessage(null)
         setEditText('')
     }
@@ -349,15 +396,51 @@ export function ChatPage() {
         try {
             const res = await deleteMessage(msg._id)
             if (res.success) {
-                // Socket.io 'message:deleted' event will handle this for other users
                 setMessages(prev => prev.filter(m => m._id !== msg._id))
             }
-        } catch (err) { console.error('Delete failed:', err) }
+        } catch (err) { setErrorModal({ title: 'Delete Failed', message: extractErrorMessage(err) }) }
     }
 
     const handleCopyMessage = (msg: ChatMessage) => {
         navigator.clipboard.writeText(msg.message).catch(() => { })
         setContextMenu(null)
+    }
+
+    const handleBannerRazorpayPayment = async (milestone: Milestone) => {
+        setPayingMilestoneId(milestone._id)
+        try {
+            const res = await createRazorpayOrder(milestone._id)
+            if (!res.success) {
+                setErrorModal({ title: 'Payment Error', message: 'Failed to create payment order' })
+                return
+            }
+            const { orderId, amount, currency, keyId } = res.response
+            const options = {
+                key: keyId, amount, currency,
+                name: 'AgencyFlow',
+                description: `Payment for: ${milestone.title}`,
+                order_id: orderId,
+                handler: async (response: any) => {
+                    try {
+                        await verifyRazorpayPayment(milestone._id, {
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                        })
+                        fetchPendingPayments()
+                    } catch (err) {
+                        setErrorModal({ title: 'Payment Verification Failed', message: extractErrorMessage(err) })
+                    }
+                },
+                prefill: { name: user?.name || '', email: user?.email || '' },
+                theme: { color: '#6366f1' },
+            }
+            const rzp = new (window as any).Razorpay(options)
+            rzp.open()
+        } catch (err) {
+            setErrorModal({ title: 'Payment Error', message: extractErrorMessage(err) })
+        }
+        finally { setPayingMilestoneId(null) }
     }
 
     const selectConversation = (conv: Conversation) => {
@@ -499,8 +582,9 @@ export function ChatPage() {
 
                     {activeConversation ? (
                         <>
-                            <div className="h-14 px-4 flex items-center gap-3 border-b border-border bg-card flex-shrink-0">
-                                <button onClick={() => setShowMobileChat(false)} className="lg:hidden p-1 rounded-sm hover:bg-muted">
+                            <div className="h-14 px-4 flex items-center gap-3 border-b border-border bg-card flex-shrink-0 cursor-pointer hover:bg-muted/30 transition-colors"
+                                onClick={() => setShowMilestonePanel(true)}>
+                                <button onClick={(e) => { e.stopPropagation(); setShowMobileChat(false) }} className="lg:hidden p-1 rounded-sm hover:bg-muted">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
                                 <div className="w-8 h-8 rounded-sm bg-primary/20 flex items-center justify-center">
@@ -521,7 +605,83 @@ export function ChatPage() {
                                         })()}
                                     </p>
                                 </div>
+                                <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             </div>
+
+                            {/* Milestone Progress Bar */}
+                            {allMilestones.length > 0 && (
+                                <div className="px-4 py-2 border-b border-border bg-card/50 flex-shrink-0">
+                                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                                        <span className="font-medium">Project Progress</span>
+                                        <span>
+                                            {allMilestones.filter(m => m.status === 'paid').length}/{allMilestones.length} milestones
+                                            {' · '}
+                                            {allMilestones.length > 0 ? Math.round((allMilestones.filter(m => m.status === 'paid').length / allMilestones.length) * 100) : 0}%
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden flex">
+                                        {allMilestones.map((m, i) => {
+                                            const widthPct = 100 / allMilestones.length
+                                            let colorClass = 'bg-muted-foreground/20' // pending
+                                            if (m.status === 'paid') colorClass = 'bg-emerald-500'
+                                            else if (m.status === 'completed') colorClass = 'bg-primary'
+                                            else if (m.status === 'in_progress') colorClass = 'bg-primary/50'
+                                            return (
+                                                <div
+                                                    key={m._id}
+                                                    className={`h-full ${colorClass} ${i > 0 ? 'border-l border-background' : ''}`}
+                                                    style={{ width: `${widthPct}%` }}
+                                                    title={`${m.title}: ${m.status.replace('_', ' ')}`}
+                                                />
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Payment Warning Banner */}
+                            {pendingPaymentMilestones.length > 0 && (
+                                <div className="border-b border-destructive/30 bg-destructive/10 flex-shrink-0">
+                                    <button
+                                        onClick={() => setPaymentBannerExpanded(!paymentBannerExpanded)}
+                                        className="w-full px-4 py-2.5 flex items-center gap-2 text-left"
+                                    >
+                                        <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0" />
+                                        <span className="text-sm font-medium text-destructive flex-1">
+                                            {pendingPaymentMilestones.length} payment{pendingPaymentMilestones.length > 1 ? 's' : ''} pending
+                                            — ₹{pendingPaymentMilestones.reduce((s, m) => s + m.amount, 0).toLocaleString('en-IN')}
+                                        </span>
+                                        {paymentBannerExpanded
+                                            ? <ChevronUp className="w-4 h-4 text-destructive" />
+                                            : <ChevronDown className="w-4 h-4 text-destructive" />
+                                        }
+                                    </button>
+                                    {paymentBannerExpanded && (
+                                        <div className="px-4 pb-3 space-y-2">
+                                            {pendingPaymentMilestones.map(m => (
+                                                <div key={m._id} className="flex items-center gap-3 p-2.5 bg-card border border-border rounded-sm">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-foreground truncate">{m.title}</p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            ₹{m.amount.toLocaleString('en-IN')}
+                                                        </p>
+                                                    </div>
+                                                    {user?.role === 'client' && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleBannerRazorpayPayment(m) }}
+                                                            disabled={payingMilestoneId === m._id}
+                                                            className="px-3 py-1.5 bg-primary text-primary-foreground rounded-sm text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                                        >
+                                                            {payingMilestoneId === m._id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                                            Pay Now
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                                 {messagesLoading ? (
@@ -583,17 +743,36 @@ export function ChatPage() {
                                                                     <div className="space-y-2 mb-1">
                                                                         {msg.attachments.map((att, attIdx) => (
                                                                             att.type?.startsWith('image/') ? (
-                                                                                <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
-                                                                                    <img src={att.url} alt={att.name} className="max-w-[240px] max-h-[200px] rounded-sm object-cover cursor-pointer hover:opacity-90 transition-opacity" />
-                                                                                </a>
+                                                                                <div key={attIdx} className="relative group/img">
+                                                                                    <img
+                                                                                        src={att.url}
+                                                                                        alt={att.name}
+                                                                                        className="max-w-[280px] max-h-[240px] rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                                                                        loading="lazy"
+                                                                                        onClick={() => window.open(att.url, '_blank')}
+                                                                                    />
+                                                                                    <a
+                                                                                        href={att.url}
+                                                                                        download={att.name}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        className={`absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover/img:opacity-100 transition-opacity ${own ? 'bg-black/40 text-white hover:bg-black/60' : 'bg-black/40 text-white hover:bg-black/60'}`}
+                                                                                        onClick={e => e.stopPropagation()}
+                                                                                    >
+                                                                                        <Download className="w-3.5 h-3.5" />
+                                                                                    </a>
+                                                                                </div>
                                                                             ) : (
-                                                                                <a key={attIdx} href={att.url} target="_blank" rel="noopener noreferrer"
-                                                                                    className={`flex items-center gap-2 p-2 rounded-sm transition-colors ${own ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20' : 'bg-muted/50 hover:bg-muted'}`}>
-                                                                                    {getFileIcon(att.type)}
+                                                                                <a key={attIdx} href={att.url} download={att.name} target="_blank" rel="noopener noreferrer"
+                                                                                    className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${own ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20' : 'bg-muted/50 hover:bg-muted'}`}>
+                                                                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${own ? 'bg-primary-foreground/15' : 'bg-primary/10'}`}>
+                                                                                        {getFileIcon(att.type)}
+                                                                                    </div>
                                                                                     <div className="flex-1 min-w-0">
                                                                                         <p className="text-xs font-medium truncate">{att.name}</p>
                                                                                         <p className={`text-[10px] ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>{formatFileSize(att.size)}</p>
                                                                                     </div>
+                                                                                    <Download className={`w-4 h-4 flex-shrink-0 ${own ? 'text-primary-foreground/60' : 'text-muted-foreground'}`} />
                                                                                 </a>
                                                                             )
                                                                         ))}
@@ -680,6 +859,16 @@ export function ChatPage() {
                 </div>
             </div>
 
+            {/* Milestone Panel */}
+            {activeConversation && (
+                <ChatMilestonePanel
+                    conversation={activeConversation}
+                    open={showMilestonePanel}
+                    onClose={() => setShowMilestonePanel(false)}
+                    onPaymentUpdate={fetchPendingPayments}
+                />
+            )}
+
             {/* Context Menu */}
             {contextMenu && (
                 <div className="fixed z-[100] bg-card border border-border rounded-sm shadow-lg py-1 min-w-[160px] animate-fade-in"
@@ -703,6 +892,14 @@ export function ChatPage() {
                     )}
                 </div>
             )}
+
+            {/* Error Modal */}
+            <ErrorModal
+                open={!!errorModal}
+                title={errorModal?.title}
+                message={errorModal?.message || ''}
+                onClose={() => setErrorModal(null)}
+            />
         </div>
     )
 }

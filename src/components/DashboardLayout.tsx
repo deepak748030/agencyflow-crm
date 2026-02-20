@@ -11,10 +11,10 @@ import { getUnreadCount } from '../lib/api'
 
 const allNavItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin'] },
-    { to: '/projects', icon: FolderKanban, label: 'Projects', roles: ['admin', 'manager', 'developer', 'client'] },
-    { to: '/tasks', icon: ListTodo, label: 'Tasks', roles: ['admin', 'manager', 'developer'] },
+    { to: '/projects', icon: FolderKanban, label: 'Projects', roles: ['admin', 'manager'] },
+    { to: '/tasks', icon: ListTodo, label: 'Tasks', roles: ['admin', 'manager'] },
     { to: '/users', icon: Users, label: 'Users', roles: ['admin'] },
-    { to: '/milestones', icon: Target, label: 'Milestones', roles: ['admin', 'manager', 'client'] },
+    { to: '/milestones', icon: Target, label: 'Milestones', roles: ['admin', 'manager'] },
     { to: '/chat', icon: MessageCircle, label: 'Chat', roles: ['admin', 'manager', 'developer', 'client'] },
     { to: '/activity', icon: Activity, label: 'Activity', roles: ['admin', 'manager'] },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ['admin', 'manager', 'developer', 'client'] },
